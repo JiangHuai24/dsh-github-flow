@@ -10,6 +10,8 @@ param(
 
 $ErrorActionPreference = 'Continue'
 $ProgressPreference = 'SilentlyContinue'
+# PowerShell 5.1 may default to TLS 1.0, which GitHub rejects.
+[Net.ServicePointManager]::SecurityProtocol = [Net.ServicePointManager]::SecurityProtocol -bor [Net.SecurityProtocolType]::Tls12
 $env:GIT_TERMINAL_PROMPT = '0'
 $env:GCM_INTERACTIVE = 'Never'
 
@@ -133,16 +135,35 @@ try {
         draft = $false
         prerelease = $false
       } | ConvertTo-Json -Depth 4 -Compress
-      $existing = $null
+      function Invoke-Api {
+        param([string]$Method, [string]$Uri, [string]$Json)
+        for ($attempt = 1; $attempt -le 3; $attempt++) {
+          try {
+            if ($Json) {
+              return Invoke-RestMethod -Method $Method -Uri $Uri -Headers $headers -ContentType 'application/json' -Body $Json -TimeoutSec 30
+            }
+            return Invoke-RestMethod -Method $Method -Uri $Uri -Headers $headers -TimeoutSec 30
+          } catch {
+            $code = 0
+            if ($_.Exception.Response) { $code = [int]$_.Exception.Response.StatusCode }
+            if ($code -eq 404) { return $null }
+            if ($attempt -eq 3) { throw }
+            Start-Sleep -Seconds 2
+          }
+        }
+      }
+
       try {
-        $existing = Invoke-RestMethod -Uri ("https://api.github.com/repos/" + $slug + "/releases/tags/" + $Tag) -Headers $headers -TimeoutSec 30
-      } catch { $existing = $null }
-      if ($existing) {
-        Invoke-RestMethod -Method PATCH -Uri ("https://api.github.com/repos/" + $slug + "/releases/" + $existing.id) -Headers $headers -ContentType 'application/json' -Body $body -TimeoutSec 30 | Out-Null
-        Step ("release updated https://github.com/" + $slug + "/releases/tag/" + $Tag)
-      } else {
-        Invoke-RestMethod -Method POST -Uri ("https://api.github.com/repos/" + $slug + "/releases") -Headers $headers -ContentType 'application/json' -Body $body -TimeoutSec 30 | Out-Null
-        Step ("release created https://github.com/" + $slug + "/releases/tag/" + $Tag)
+        $existing = Invoke-Api -Method GET -Uri ("https://api.github.com/repos/" + $slug + "/releases/tags/" + $Tag)
+        if ($existing) {
+          Invoke-Api -Method PATCH -Uri ("https://api.github.com/repos/" + $slug + "/releases/" + $existing.id) -Json $body | Out-Null
+          Step ("release updated https://github.com/" + $slug + "/releases/tag/" + $Tag)
+        } else {
+          Invoke-Api -Method POST -Uri ("https://api.github.com/repos/" + $slug + "/releases") -Json $body | Out-Null
+          Step ("release created https://github.com/" + $slug + "/releases/tag/" + $Tag)
+        }
+      } catch {
+        Write-Host ("WARN: release failed: " + $_.Exception.Message)
       }
     }
   }
