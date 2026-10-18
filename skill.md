@@ -66,7 +66,7 @@ git rev-parse HEAD
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File "{{SKILL_DIR}}\scripts\gh-push.ps1" `
-  -RepoPath "D:\WorkBuddy\<repo>" `
+  -RepoPath "<repo path>" `
   -Message "feat: ..." `
   -Tag "v1.2.3" `
   -ReleaseName "v1.2.3 - ..."
