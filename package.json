@@ -1,0 +1,26 @@
+{
+  "name": "@local/github-flow",
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Registers the github-push skill and its script, so every session follows one fixed GitHub commit/push/release procedure.",
+  "license": "MIT",
+  "author": "extremity2740938284-create",
+  "exports": {
+    ".": "./index.js",
+    "./locale/*.json": "./locale/*.json",
+    "./icon": "./icon.svg"
+  },
+  "files": [
+    "index.js",
+    "skill.md",
+    "scripts/gh-push.ps1",
+    "cordis.patch.yml",
+    "locale/*.json",
+    "icon.svg"
+  ],
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

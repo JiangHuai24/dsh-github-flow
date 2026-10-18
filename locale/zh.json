@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "GitHub 推送流程",
+    "description": "注册 github-push skill 与配套脚本，让所有会话共用同一套提交、推送、发 Release 的固定流程。"
+  }
+}

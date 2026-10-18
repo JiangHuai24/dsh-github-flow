@@ -1,0 +1,6 @@
+{
+  "meta": {
+    "title": "GitHub Push Flow",
+    "description": "Registers the github-push skill and its script, so every session follows one fixed GitHub commit, push and release procedure."
+  }
+}
