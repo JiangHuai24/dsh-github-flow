@@ -147,10 +147,20 @@ try {
             $code = 0
             if ($_.Exception.Response) { $code = [int]$_.Exception.Response.StatusCode }
             if ($code -eq 404) { return $null }
-            if ($attempt -eq 3) { throw }
+            if ($attempt -eq 3) { break }
             Start-Sleep -Seconds 2
           }
         }
+        # Invoke-RestMethod intermittently fails on flaky links while curl
+        # keeps working, so the last resort goes through curl.exe.
+        $auth = $headers["Authorization"]
+        $curlArgs = @("-s", "-X", $Method, "-H", ("Authorization: " + $auth), "-H", "Accept: application/vnd.github+json", "-H", "User-Agent: gh-push", "--max-time", "30")
+        if ($Json) { $curlArgs += @("-H", "Content-Type: application/json", "--data-binary", $Json) }
+        $curlArgs += $Uri
+        $raw = & curl.exe @curlArgs 2>$null
+        if (-not $raw) { throw "api call failed (Invoke-RestMethod and curl)" }
+        if ($raw -match '"message"\s*:\s*"Not Found"') { return $null }
+        return ($raw | ConvertFrom-Json)
       }
 
       try {

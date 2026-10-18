@@ -91,6 +91,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "{{SKILL_DIR}}\scripts\gh-pu
 | 凭据窗口一直挂着 | GCM 在等交互 | 设 `GIT_TERMINAL_PROMPT=0`、`GCM_INTERACTIVE=Never` 再跑 |
 | 授权页空白 | 系统代理指向坏端口 | 关掉系统代理后用直连/TUN |
 | 推完远端没变 | 推错分支或没推 tag | `ls-remote` 对 sha；tag 单独 `push --tags` |
+| `Invoke-RestMethod` 报“基础连接已经关闭” | PS 5.1 的 TLS/网络栈抖动 | 用 `curl.exe` 调 API；脚本已内置 curl 兜底 |
 
 ## 8. 收尾
 
