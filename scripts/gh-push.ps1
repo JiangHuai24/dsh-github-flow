@@ -8,7 +8,7 @@ param(
   [switch]$DryRun
 )
 
-$ErrorActionPreference = 'Stop'
+$ErrorActionPreference = 'Continue'
 $ProgressPreference = 'SilentlyContinue'
 $env:GIT_TERMINAL_PROMPT = '0'
 $env:GCM_INTERACTIVE = 'Never'
@@ -40,7 +40,9 @@ try {
   $root = (Invoke-Git @('rev-parse','--show-toplevel')).Trim()
   if (-not $root) { Fail 'not a git repository' }
   Set-Location $root
+  if (-not $root) { Fail 'git rev-parse failed' }
   $branch = (Invoke-Git @('rev-parse','--abbrev-ref','HEAD')).Trim()
+  if (-not $branch) { Fail 'cannot determine current branch' }
   Step ("repo   " + $root)
   Step ("branch " + $branch)
 
