@@ -99,10 +99,19 @@ try {
   # --- 5. verify -----------------------------------------------------------
   $local = (Invoke-Git @('rev-parse','HEAD')).Trim()
   if (-not $DryRun) {
-    $remoteLine = (Invoke-Git @('ls-remote','--heads','origin',$branch) $proxy).Trim()
-    $remote = ($remoteLine -split "\s+")[0]
+    # ls-remote can fail (network blip) or return warning text; only a real
+    # 40-hex first field counts as a remote head, otherwise retry before failing.
+    $remote = ''
+    for ($attempt = 1; $attempt -le 4; $attempt++) {
+      $raw = ''
+      try { $raw = (Invoke-Git @('ls-remote','--heads','origin',$branch) $proxy) } catch { $raw = '' }
+      $match = [regex]::Match([string]$raw, '^([0-9a-f]{40})\s', 'Multiline')
+      if ($match.Success) { $remote = $match.Groups[1].Value; break }
+      if ($attempt -lt 4) { Start-Sleep -Seconds 2 }
+    }
     Step ("local  " + $local)
     Step ("remote " + $remote)
+    if ($remote -eq '') { Fail 'cannot read remote head (network?)' }
     if ($remote -ne $local) { Fail 'remote head does not match local head' }
   }
 
