@@ -60,6 +60,14 @@ function sendJson(res, payload) {
   res.end(JSON.stringify(payload))
 }
 
+const logSafe = (message) => {
+  try {
+    console.warn('[github-flow] ' + message)
+  } catch {
+    // logging must never break activation
+  }
+}
+
 export const inject = ['skills']
 
 /**
@@ -81,8 +89,17 @@ export function apply(ctx, config) {
     }
   })
 
-  ctx.effect(() =>
-    ctx.skills.register({
+  // Resolve through ctx.get: a hard property access here turns a missing
+  // service into a module-level throw, which the host reports as
+  // "import failed" and aborts the whole web boot.
+  const skills = typeof ctx.get === 'function' ? ctx.get('skills') : ctx.skills
+
+  ctx.effect(() => {
+    if (!skills || typeof skills.register !== 'function') {
+      logSafe('skills service unavailable; github-push skill not registered')
+      return
+    }
+    return skills.register({
       name: 'github-push',
       description:
         '固定流程：把本地改动提交并推送到 GitHub —— 探测网络与凭据、提交、推送、校验远端、按需打 tag 与发 Release。',
@@ -91,8 +108,8 @@ export function apply(ctx, config) {
       invocation: { modelInvocable: true, userInvocable: true },
       source: 'custom',
       content,
-    }),
-  )
+    })
+  })
 
   const webServer = typeof ctx.get === 'function' ? ctx.get('webServer') : ctx.webServer
   const registry = typeof ctx.get === 'function' ? ctx.get('workspaceRegistry') : ctx.workspaceRegistry
