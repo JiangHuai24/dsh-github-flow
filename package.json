@@ -1,6 +1,6 @@
 {
   "name": "@local/github-flow",
-  "version": "1.5.0",
+  "version": "1.5.1",
   "type": "module",
   "description": "Registers the github-push skill and its script, so every session follows one fixed GitHub commit/push/release procedure.",
   "license": "MIT",
@@ -21,7 +21,8 @@
     "icon.svg",
     "README.md",
     "LICENSE",
-    "docs/*.md"
+    "docs/*.md",
+    "test/bundle.gate.mjs"
   ],
   "dsh": {
     "bundle": {
@@ -34,5 +35,8 @@
         "@deepseek-ai/dsh-client-ui-slots"
       ]
     }
+  },
+  "scripts": {
+    "test": "node test/bundle.gate.mjs"
   }
 }

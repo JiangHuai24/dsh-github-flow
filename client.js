@@ -455,6 +455,167 @@ function Choice({ value, current, onChange, title, hint }) {
   )
 }
 
+    // ---- shared settings primitives (docs/ui-standard.md) ----
+    function Field({ label, hint, children }) {
+      return h(
+        'div',
+        {
+          style: {
+            display: 'flex',
+            alignItems: 'flex-start',
+            gap: 16,
+            padding: '10px 0',
+            borderBottom: '1px solid ' + colors.borderSoft,
+          },
+        },
+        h(
+          'div',
+          { style: { width: 200, flex: 'none' } },
+          h('div', { style: { fontSize: 13, color: colors.primary } }, label),
+          hint ? h('div', { style: { marginTop: 2, fontSize: 11, color: colors.tertiary, lineHeight: 1.5 } }, hint) : null,
+        ),
+        h('div', { style: { flex: 1, minWidth: 0, display: 'flex', justifyContent: 'flex-end' } }, children),
+      )
+    }
+
+    function Group({ title, children }) {
+      return h(
+        'div',
+        { style: { marginTop: 20 } },
+        h('div', { style: { fontSize: 12, fontWeight: 600, color: colors.secondary, marginBottom: 4 } }, title),
+        ...React.Children.toArray(children),
+      )
+    }
+
+    function Toggle({ value, onChange }) {
+      return h(
+        'button',
+        {
+          type: 'button',
+          role: 'switch',
+          'aria-checked': value ? 'true' : 'false',
+          onClick: () => onChange(!value),
+          style: {
+            width: 34,
+            height: 18,
+            flex: 'none',
+            borderRadius: 9,
+            border: 'none',
+            cursor: 'pointer',
+            padding: 0,
+            position: 'relative',
+            background: value ? 'var(--dsw-alias-brand-primary)' : 'var(--dsw-alias-border-l2)',
+            transition: 'background 120ms',
+          },
+        },
+        h('span', {
+          style: {
+            position: 'absolute',
+            top: 2,
+            left: value ? 18 : 2,
+            width: 14,
+            height: 14,
+            borderRadius: '50%',
+            background: '#fff',
+            transition: 'left 120ms',
+          },
+        }),
+      )
+    }
+
+    function NumberField({ value, onChange, min, max, suffix }) {
+      return h(
+        'div',
+        { style: { display: 'flex', alignItems: 'center', gap: 6 } },
+        h('input', {
+          type: 'number',
+          value: String(value),
+          min,
+          max,
+          onChange: (event) => {
+            const next = Number(event.target.value)
+            if (Number.isFinite(next)) onChange(next)
+          },
+          style: {
+            width: 96,
+            padding: '5px 8px',
+            borderRadius: 6,
+            border: '1px solid ' + colors.border,
+            background: colors.layer,
+            color: colors.primary,
+            font: 'inherit',
+            fontSize: 12,
+          },
+        }),
+        suffix ? h('span', { style: { fontSize: 11, color: colors.tertiary } }, suffix) : null,
+      )
+    }
+
+    function TextField({ value, onChange, placeholder, width }) {
+      return h('input', {
+        value: value || '',
+        placeholder,
+        onChange: (event) => onChange(event.target.value),
+        style: {
+          width: width || 260,
+          padding: '5px 8px',
+          borderRadius: 6,
+          border: '1px solid ' + colors.border,
+          background: colors.layer,
+          color: colors.primary,
+          font: 'inherit',
+          fontSize: 12,
+        },
+      })
+    }
+
+    function SaveBar({ dirty, saving, onSave, onReset, note }) {
+      return h(
+        'div',
+        { style: { display: 'flex', alignItems: 'center', gap: 10, marginTop: 18 } },
+        h(
+          'button',
+          {
+            type: 'button',
+            disabled: !dirty || saving,
+            onClick: onSave,
+            style: {
+              height: 28,
+              padding: '0 14px',
+              borderRadius: 6,
+              border: 'none',
+              background: dirty && !saving ? 'var(--dsw-alias-brand-primary)' : colors.border,
+              color: dirty && !saving ? '#fff' : colors.tertiary,
+              cursor: dirty && !saving ? 'pointer' : 'not-allowed',
+              font: 'inherit',
+              fontSize: 12,
+            },
+          },
+          saving ? '保存中…' : '保存',
+        ),
+        h(
+          'button',
+          {
+            type: 'button',
+            onClick: onReset,
+            style: {
+              height: 28,
+              padding: '0 12px',
+              borderRadius: 6,
+              border: '1px solid ' + colors.border,
+              background: 'transparent',
+              color: colors.secondary,
+              cursor: 'pointer',
+              font: 'inherit',
+              fontSize: 12,
+            },
+          },
+          '还原',
+        ),
+        note ? h('span', { style: { fontSize: 11, color: colors.tertiary } }, note) : null,
+      )
+    }
+
 function SettingsSection() {
       const [info, setInfo] = React.useState(null)
       const [wizardOpen, setWizardOpen] = React.useState(false)
@@ -811,172 +972,4 @@ function SettingsSection() {
       },
     }
   },
-})  /**
-   * Shared settings-form primitives, inlined into each client bundle.
-   * `spec` is the field descriptor list the page renders.
-   */
-
-  const primitives = `
-      // ---- shared settings primitives (docs/ui-standard.md) ----
-      function Field({ label, hint, children }) {
-        return h(
-          'div',
-          {
-            style: {
-              display: 'flex',
-              alignItems: 'flex-start',
-              gap: 16,
-              padding: '10px 0',
-              borderBottom: '1px solid ' + colors.borderSoft,
-            },
-          },
-          h(
-            'div',
-            { style: { width: 200, flex: 'none' } },
-            h('div', { style: { fontSize: 13, color: colors.primary } }, label),
-            hint ? h('div', { style: { marginTop: 2, fontSize: 11, color: colors.tertiary, lineHeight: 1.5 } }, hint) : null,
-          ),
-          h('div', { style: { flex: 1, minWidth: 0, display: 'flex', justifyContent: 'flex-end' } }, children),
-        )
-      }
-
-      function Group({ title, children }) {
-        return h(
-          'div',
-          { style: { marginTop: 20 } },
-          h('div', { style: { fontSize: 12, fontWeight: 600, color: colors.secondary, marginBottom: 4 } }, title),
-          ...children,
-        )
-      }
-
-      function Toggle({ value, onChange }) {
-        return h(
-          'button',
-          {
-            type: 'button',
-            role: 'switch',
-            'aria-checked': value ? 'true' : 'false',
-            onClick: () => onChange(!value),
-            style: {
-              width: 34,
-              height: 18,
-              flex: 'none',
-              borderRadius: 9,
-              border: 'none',
-              cursor: 'pointer',
-              padding: 0,
-              position: 'relative',
-              background: value ? 'var(--dsw-alias-brand-primary)' : 'var(--dsw-alias-border-l2)',
-              transition: 'background 120ms',
-            },
-          },
-          h('span', {
-            style: {
-              position: 'absolute',
-              top: 2,
-              left: value ? 18 : 2,
-              width: 14,
-              height: 14,
-              borderRadius: '50%',
-              background: '#fff',
-              transition: 'left 120ms',
-            },
-          }),
-        )
-      }
-
-      function NumberField({ value, onChange, min, max, suffix }) {
-        return h(
-          'div',
-          { style: { display: 'flex', alignItems: 'center', gap: 6 } },
-          h('input', {
-            type: 'number',
-            value: String(value),
-            min,
-            max,
-            onChange: (event) => {
-              const next = Number(event.target.value)
-              if (Number.isFinite(next)) onChange(next)
-            },
-            style: {
-              width: 96,
-              padding: '5px 8px',
-              borderRadius: 6,
-              border: '1px solid ' + colors.border,
-              background: colors.layer,
-              color: colors.primary,
-              font: 'inherit',
-              fontSize: 12,
-            },
-          }),
-          suffix ? h('span', { style: { fontSize: 11, color: colors.tertiary } }, suffix) : null,
-        )
-      }
-
-      function TextField({ value, onChange, placeholder, width }) {
-        return h('input', {
-          value: value || '',
-          placeholder,
-          onChange: (event) => onChange(event.target.value),
-          style: {
-            width: width || 260,
-            padding: '5px 8px',
-            borderRadius: 6,
-            border: '1px solid ' + colors.border,
-            background: colors.layer,
-            color: colors.primary,
-            font: 'inherit',
-            fontSize: 12,
-          },
-        })
-      }
-
-      function SaveBar({ dirty, saving, onSave, onReset, note }) {
-        return h(
-          'div',
-          { style: { display: 'flex', alignItems: 'center', gap: 10, marginTop: 18 } },
-          h(
-            'button',
-            {
-              type: 'button',
-              disabled: !dirty || saving,
-              onClick: onSave,
-              style: {
-                height: 28,
-                padding: '0 14px',
-                borderRadius: 6,
-                border: 'none',
-                background: dirty && !saving ? 'var(--dsw-alias-brand-primary)' : colors.border,
-                color: dirty && !saving ? '#fff' : colors.tertiary,
-                cursor: dirty && !saving ? 'pointer' : 'not-allowed',
-                font: 'inherit',
-                fontSize: 12,
-              },
-            },
-            saving ? '保存中…' : '保存',
-          ),
-          h(
-            'button',
-            {
-              type: 'button',
-              onClick: onReset,
-              style: {
-                height: 28,
-                padding: '0 12px',
-                borderRadius: 6,
-                border: '1px solid ' + colors.border,
-                background: 'transparent',
-                color: colors.secondary,
-                cursor: 'pointer',
-                font: 'inherit',
-                fontSize: 12,
-              },
-            },
-            '还原',
-          ),
-          note ? h('span', { style: { fontSize: 11, color: colors.tertiary } }, note) : null,
-        )
-      }
-  `
-
-
+})
