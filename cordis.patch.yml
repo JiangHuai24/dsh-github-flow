@@ -1,3 +1,6 @@
 - insert:
     - id: github-flow
       name: '@local/github-flow'
+      config:
+        # Git repositories offered in the one-click push panel.
+        reposRoot: 'D:\WorkBuddy'
