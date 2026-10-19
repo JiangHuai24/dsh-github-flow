@@ -322,25 +322,207 @@ window.__ModuleLoader__.load({
       )
     }
 
-    function SettingsSection() {
+// ---- setup wizard (anchor: gh auth login / create-vite flow) ----
+// One decision per screen, a progress rail, and a hard gate before the write
+// step so a half-configured setup can never look "done".
+function Wizard({ steps, onDone, onCancel }) {
+  const [index, setIndex] = React.useState(0)
+  const [state, setState] = React.useState({})
+  const step = steps[index]
+  const isLast = index === steps.length - 1
+  const canAdvance = step.canAdvance ? step.canAdvance(state) : true
+
+  return h(
+    'div',
+    {
+      role: 'dialog',
+      'aria-label': '设置向导',
+      style: { border: '1px solid ' + colors.border, borderRadius: 12, background: colors.panel, padding: 18, marginTop: 14 },
+    },
+    h(
+      'div',
+      { style: { display: 'flex', alignItems: 'center', gap: 8, marginBottom: 14 } },
+      ...steps.map((item, position) =>
+        h('div', {
+          key: item.id,
+          title: item.title,
+          style: {
+            height: 3,
+            flex: 1,
+            borderRadius: 2,
+            background: position <= index ? 'var(--dsw-alias-brand-primary)' : colors.border,
+            opacity: position === index ? 0.7 : 1,
+          },
+        }),
+      ),
+      h('span', { style: { fontSize: 11, color: colors.tertiary, flex: 'none' } }, index + 1 + '/' + steps.length),
+    ),
+    h('div', { style: { fontSize: 14, color: colors.primary, marginBottom: 4 } }, step.title),
+    step.hint ? h('div', { style: { fontSize: 12, color: colors.secondary, marginBottom: 12, lineHeight: 1.6 } }, step.hint) : null,
+    h('div', { style: { minHeight: 72 } }, step.render({ state, set: (patch) => setState((current) => ({ ...current, ...patch })) })),
+    step.warn && step.warn(state)
+      ? h('div', { style: { fontSize: 11, color: 'var(--dsw-alias-state-warning-primary)', marginTop: 8 } }, step.warn(state))
+      : null,
+    h(
+      'div',
+      { style: { display: 'flex', gap: 8, marginTop: 16 } },
+      h(
+        'button',
+        {
+          type: 'button',
+          onClick: () => (index === 0 ? onCancel() : setIndex(index - 1)),
+          style: {
+            height: 28,
+            padding: '0 12px',
+            borderRadius: 6,
+            border: '1px solid ' + colors.border,
+            background: 'transparent',
+            color: colors.secondary,
+            cursor: 'pointer',
+            font: 'inherit',
+            fontSize: 12,
+          },
+        },
+        index === 0 ? '取消' : '上一步',
+      ),
+      h('span', { style: { flex: 1 } }),
+      h(
+        'button',
+        {
+          type: 'button',
+          disabled: !canAdvance,
+          onClick: () => (isLast ? onDone(state) : setIndex(index + 1)),
+          style: {
+            height: 28,
+            padding: '0 16px',
+            borderRadius: 6,
+            border: 'none',
+            background: canAdvance ? 'var(--dsw-alias-brand-primary)' : colors.border,
+            color: canAdvance ? '#fff' : colors.tertiary,
+            cursor: canAdvance ? 'pointer' : 'not-allowed',
+            font: 'inherit',
+            fontSize: 12,
+          },
+        },
+        isLast ? '完成' : '下一步',
+      ),
+    ),
+  )
+}
+
+function Choice({ value, current, onChange, title, hint }) {
+  const selected = value === current
+  return h(
+    'button',
+    {
+      type: 'button',
+      role: 'radio',
+      'aria-checked': selected ? 'true' : 'false',
+      onClick: () => onChange(value),
+      style: {
+        display: 'flex',
+        alignItems: 'flex-start',
+        gap: 10,
+        width: '100%',
+        textAlign: 'left',
+        padding: '9px 10px',
+        marginBottom: 6,
+        borderRadius: 8,
+        border: '1px solid ' + (selected ? 'var(--dsw-alias-brand-primary)' : colors.border),
+        background: selected ? colors.hover : 'transparent',
+        color: colors.primary,
+        cursor: 'pointer',
+        font: 'inherit',
+      },
+    },
+    h('span', {
+      style: {
+        width: 14,
+        height: 14,
+        flex: 'none',
+        marginTop: 2,
+        borderRadius: '50%',
+        border: '1.5px solid ' + (selected ? 'var(--dsw-alias-brand-primary)' : colors.border),
+        background: selected ? 'var(--dsw-alias-brand-primary)' : 'transparent',
+      },
+    }),
+    h(
+      'span',
+      { style: { minWidth: 0 } },
+      h('div', { style: { fontSize: 13 } }, title),
+      hint ? h('div', { style: { fontSize: 11, color: colors.tertiary, marginTop: 2, lineHeight: 1.5 } }, hint) : null,
+    ),
+  )
+}
+
+function SettingsSection() {
       const [info, setInfo] = React.useState(null)
-      const [error, setError] = React.useState('')
+      const [wizardOpen, setWizardOpen] = React.useState(false)
+      const [config, setConfig] = React.useState(null)
+      const [draft, setDraft] = React.useState(null)
+      const [saving, setSaving] = React.useState(false)
+      const [note, setNote] = React.useState('')
       const [copied, setCopied] = React.useState(false)
 
       const load = React.useCallback(() => {
-        fetch('/github-flow/info', { cache: 'no-store' })
-          .then((response) => (response.ok ? response.json() : null))
-          .then((payload) => {
-            if (!payload) return
-            setInfo(payload)
-            setError('')
+        Promise.all([
+          fetch('/github-flow/info', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)),
+          fetch('/github-flow/config', { cache: 'no-store' }).then((r) => (r.ok ? r.json() : null)),
+        ])
+          .then(([infoPayload, configPayload]) => {
+            if (infoPayload) setInfo(infoPayload)
+            if (configPayload) {
+              setConfig(configPayload)
+              setDraft(configPayload)
+            }
           })
-          .catch((failure) => setError(String(failure && failure.message)))
+          .catch(() => {})
       }, [])
 
       React.useEffect(() => {
         load()
+        try {
+          if (!window.localStorage.getItem('github-flow.setup-done')) setWizardOpen(true)
+        } catch {
+          setWizardOpen(true)
+        }
       }, [load])
+
+      const finishWizard = (values) => {
+        try {
+          window.localStorage.setItem('github-flow.setup-done', '1')
+        } catch {
+          // the flag is a convenience, not a requirement
+        }
+        setWizardOpen(false)
+        setDraft((current) => ({ ...(current || {}), ...values }))
+        setNote('已按向导设置，记得点保存')
+      }
+
+      const dirty = Boolean(draft && config && JSON.stringify(draft) !== JSON.stringify(config))
+      const set = (key) => (value) => setDraft((current) => ({ ...current, [key]: value }))
+
+      const save = () => {
+        setSaving(true)
+        setNote('')
+        fetch('/github-flow/config', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(draft),
+        })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((payload) => {
+            if (payload && payload.ok) {
+              setConfig(payload.config)
+              setDraft(payload.config)
+              setNote(payload.note || '已保存')
+            } else {
+              setNote((payload && payload.error) || '保存失败')
+            }
+          })
+          .catch((error) => setNote(String(error && error.message)))
+          .finally(() => setSaving(false))
+      }
 
       const command = info
         ? 'powershell -NoProfile -ExecutionPolicy Bypass -File "' + info.script + '" -RepoPath "<repo>" -Message "feat: ..."'
@@ -359,49 +541,217 @@ window.__ModuleLoader__.load({
         }
       }
 
-      const row = (label, value) =>
-        h(
-          'div',
-          {
-            style: {
-              display: 'flex',
-              alignItems: 'baseline',
-              gap: 12,
-              padding: '8px 0',
-              borderBottom: '1px solid ' + colors.borderSoft,
-            },
-          },
-          h('span', { style: { width: 90, flex: 'none', fontSize: 12, color: colors.secondary } }, label),
-          h('span', { style: { fontSize: 13, color: colors.primary, wordBreak: 'break-all' } }, value || '—'),
-        )
-
       return h(
         'div',
-        { style: { padding: '4px 2px', maxWidth: 720 } },
-        h('h2', { style: { margin: '0 0 6px', fontSize: 16, color: colors.primary } }, text.title),
-        h('p', { style: { margin: '0 0 16px', fontSize: 12, color: colors.secondary, lineHeight: 1.6 } }, text.hint),
-        row(text.skill, info ? info.skill + ' · v' + info.version : '…'),
-        row(text.script, info ? info.script : '…'),
-        row(text.repo, info ? info.repo : '…'),
-        error ? h('div', { style: { marginTop: 12, fontSize: 12, color: colors.error } }, error) : null,
+        { style: { padding: '4px 2px', maxWidth: 760 } },
+        h('h2', { style: { margin: '0 0 4px', fontSize: 16, color: colors.primary } }, text.title),
+        h('p', { style: { margin: '0 0 4px', fontSize: 12, color: colors.secondary } }, text.hint),
+
+        wizardOpen
+          ? h(Wizard, {
+              onCancel: () => {
+                setWizardOpen(false)
+                try {
+                  window.localStorage.setItem('github-flow.setup-done', '1')
+                } catch {
+                  // ignore
+                }
+              },
+              onDone: finishWizard,
+              steps: [
+                {
+                  id: 'root',
+                  title: '第 1 步：选择仓库根目录',
+                  hint: '推送面板会扫描这个目录下的 git 仓库。通常就是存放项目的文件夹。',
+                  canAdvance: (state) => Boolean(state.reposRoot && state.reposRoot.trim()),
+                  render: ({ state, set }) =>
+                    h(
+                      'div',
+                      null,
+                      h(Choice, {
+                        value: 'D:\\WorkBuddy',
+                        current: state.reposRoot,
+                        onChange: (value) => set({ reposRoot: value }),
+                        title: 'D:\\WorkBuddy',
+                        hint: '检测到本机常用仓库目录',
+                      }),
+                      h(Choice, {
+                        value: '',
+                        current: state.reposRoot === '' ? 'custom' : state.reposRoot,
+                        onChange: () => set({ reposRoot: '' }),
+                        title: '自定义路径',
+                        hint: '在下一步填写',
+                      }),
+                      h(TextField, {
+                        value: state.reposRoot || '',
+                        onChange: (value) => set({ reposRoot: value }),
+                        placeholder: '例如 D:\\WorkBuddy',
+                        width: 320,
+                      }),
+                    ),
+                },
+                {
+                  id: 'safety',
+                  title: '第 2 步：确认推送行为',
+                  hint: '这些默认值是安全的，可以保持不变。',
+                  render: ({ state, set }) =>
+                    h(
+                      'div',
+                      null,
+                      h(Choice, {
+                        value: 'safe',
+                        current: state.mode || 'safe',
+                        onChange: (value) => set({ mode: value, autoTag: false, retries: 6 }),
+                        title: '推荐：只提交并推送',
+                        hint: '不自动打 tag；网络抖动时重试 6 次；推完校验远端 sha',
+                      }),
+                      h(Choice, {
+                        value: 'tag',
+                        current: state.mode,
+                        onChange: (value) => set({ mode: value, autoTag: true, retries: 6 }),
+                        title: '推送并自动打 tag',
+                        hint: '适合有版本号的仓库，会在 HEAD 上创建标签',
+                      }),
+                    ),
+                },
+                {
+                  id: 'check',
+                  title: '第 3 步：检查账号与网络',
+                  hint: '推送需要 GitHub 凭据。这里只做只读检查，不会写入任何东西。',
+                  canAdvance: () => true,
+                  warn: () => '若提示未登录：在终端执行一次 git push，按弹窗完成 GitHub 登录即可。',
+                  render: () =>
+                    h(
+                      'div',
+                      { style: { fontSize: 12, color: colors.secondary, lineHeight: 1.8 } },
+                      h('div', null, '✓ 脚本：' + (info ? info.script : '…')),
+                      h('div', null, '✓ 仓库：' + (info ? info.repo : '…')),
+                      h('div', null, '凭据由 Git Credential Manager 管理，token 不会写进任何文件。'),
+                    ),
+                },
+              ],
+            })
+          : null,
+        h(
+          Group,
+          { title: '推送面板' },
+          h(
+            Field,
+            { label: '仓库根目录', hint: '面板会列出这里的 git 仓库' },
+            draft
+              ? h(TextField, { value: draft.reposRoot || '', onChange: set('reposRoot'), placeholder: 'D:\\WorkBuddy', width: 300 })
+              : null,
+          ),
+          h(
+            Field,
+            { label: '自动打 tag', hint: '有版本号时推送后自动创建标签' },
+            draft ? h(Toggle, { value: draft.autoTag !== false, onChange: set('autoTag') }) : null,
+          ),
+          h(
+            Field,
+            { label: '重试次数', hint: '网络抖动时最多重试几次' },
+            draft ? h(NumberField, { value: draft.retries || 6, min: 1, max: 30, onChange: set('retries'), suffix: '次' }) : null,
+          ),
+        ),
+
+        draft ? h(SaveBar, { dirty, saving, onSave: save, onReset: () => setDraft(config), note }) : null,
         h(
           'div',
-          { style: { display: 'flex', gap: 10, marginTop: 18 } },
-          button(copied ? text.copied : text.copy, copy, { color: copied ? colors.success : colors.primary }),
-          button(text.reload, load),
+          { style: { marginTop: 10 } },
+          h(
+            'button',
+            {
+              type: 'button',
+              onClick: () => setWizardOpen(true),
+              style: {
+                height: 28,
+                padding: '0 12px',
+                borderRadius: 6,
+                border: '1px solid ' + colors.border,
+                background: 'transparent',
+                color: colors.secondary,
+                cursor: 'pointer',
+                font: 'inherit',
+                fontSize: 12,
+              },
+            },
+            '重新运行设置向导',
+          ),
+        ),
+
+        h(
+          Group,
+          { title: '信息' },
+          h(
+            Field,
+            { label: 'Skill' },
+            h('span', { style: { fontSize: 12, color: colors.secondary } }, info ? info.skill + ' · v' + info.version : '…'),
+          ),
+          h(
+            Field,
+            { label: '脚本' },
+            h('span', { style: { fontSize: 11, color: colors.tertiary, wordBreak: 'break-all', textAlign: 'right' } }, info ? info.script : '…'),
+          ),
+          h(
+            Field,
+            { label: '仓库' },
+            h('span', { style: { fontSize: 11, color: colors.tertiary, wordBreak: 'break-all', textAlign: 'right' } }, info ? info.repo : '…'),
+          ),
+        ),
+
+        h(
+          'div',
+          { style: { display: 'flex', gap: 10, marginTop: 16 } },
+          h(
+            'button',
+            {
+              type: 'button',
+              onClick: copy,
+              style: {
+                height: 28,
+                padding: '0 12px',
+                borderRadius: 6,
+                border: '1px solid ' + colors.border,
+                background: 'transparent',
+                color: copied ? colors.success : colors.primary,
+                cursor: 'pointer',
+                font: 'inherit',
+                fontSize: 12,
+              },
+            },
+            copied ? text.copied : text.copy,
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              onClick: load,
+              style: {
+                height: 28,
+                padding: '0 12px',
+                borderRadius: 6,
+                border: '1px solid ' + colors.border,
+                background: 'transparent',
+                color: colors.primary,
+                cursor: 'pointer',
+                font: 'inherit',
+                fontSize: 12,
+              },
+            },
+            text.reload,
+          ),
         ),
         command
           ? h(
               'pre',
               {
                 style: {
-                  marginTop: 14,
+                  marginTop: 12,
                   padding: '10px 12px',
                   borderRadius: 8,
                   background: colors.layer,
                   color: colors.secondary,
                   fontSize: 11,
-                  overflowX: 'auto',
                   whiteSpace: 'pre-wrap',
                   wordBreak: 'break-all',
                 },
@@ -461,4 +811,172 @@ window.__ModuleLoader__.load({
       },
     }
   },
-})
+})  /**
+   * Shared settings-form primitives, inlined into each client bundle.
+   * `spec` is the field descriptor list the page renders.
+   */
+
+  const primitives = `
+      // ---- shared settings primitives (docs/ui-standard.md) ----
+      function Field({ label, hint, children }) {
+        return h(
+          'div',
+          {
+            style: {
+              display: 'flex',
+              alignItems: 'flex-start',
+              gap: 16,
+              padding: '10px 0',
+              borderBottom: '1px solid ' + colors.borderSoft,
+            },
+          },
+          h(
+            'div',
+            { style: { width: 200, flex: 'none' } },
+            h('div', { style: { fontSize: 13, color: colors.primary } }, label),
+            hint ? h('div', { style: { marginTop: 2, fontSize: 11, color: colors.tertiary, lineHeight: 1.5 } }, hint) : null,
+          ),
+          h('div', { style: { flex: 1, minWidth: 0, display: 'flex', justifyContent: 'flex-end' } }, children),
+        )
+      }
+
+      function Group({ title, children }) {
+        return h(
+          'div',
+          { style: { marginTop: 20 } },
+          h('div', { style: { fontSize: 12, fontWeight: 600, color: colors.secondary, marginBottom: 4 } }, title),
+          ...children,
+        )
+      }
+
+      function Toggle({ value, onChange }) {
+        return h(
+          'button',
+          {
+            type: 'button',
+            role: 'switch',
+            'aria-checked': value ? 'true' : 'false',
+            onClick: () => onChange(!value),
+            style: {
+              width: 34,
+              height: 18,
+              flex: 'none',
+              borderRadius: 9,
+              border: 'none',
+              cursor: 'pointer',
+              padding: 0,
+              position: 'relative',
+              background: value ? 'var(--dsw-alias-brand-primary)' : 'var(--dsw-alias-border-l2)',
+              transition: 'background 120ms',
+            },
+          },
+          h('span', {
+            style: {
+              position: 'absolute',
+              top: 2,
+              left: value ? 18 : 2,
+              width: 14,
+              height: 14,
+              borderRadius: '50%',
+              background: '#fff',
+              transition: 'left 120ms',
+            },
+          }),
+        )
+      }
+
+      function NumberField({ value, onChange, min, max, suffix }) {
+        return h(
+          'div',
+          { style: { display: 'flex', alignItems: 'center', gap: 6 } },
+          h('input', {
+            type: 'number',
+            value: String(value),
+            min,
+            max,
+            onChange: (event) => {
+              const next = Number(event.target.value)
+              if (Number.isFinite(next)) onChange(next)
+            },
+            style: {
+              width: 96,
+              padding: '5px 8px',
+              borderRadius: 6,
+              border: '1px solid ' + colors.border,
+              background: colors.layer,
+              color: colors.primary,
+              font: 'inherit',
+              fontSize: 12,
+            },
+          }),
+          suffix ? h('span', { style: { fontSize: 11, color: colors.tertiary } }, suffix) : null,
+        )
+      }
+
+      function TextField({ value, onChange, placeholder, width }) {
+        return h('input', {
+          value: value || '',
+          placeholder,
+          onChange: (event) => onChange(event.target.value),
+          style: {
+            width: width || 260,
+            padding: '5px 8px',
+            borderRadius: 6,
+            border: '1px solid ' + colors.border,
+            background: colors.layer,
+            color: colors.primary,
+            font: 'inherit',
+            fontSize: 12,
+          },
+        })
+      }
+
+      function SaveBar({ dirty, saving, onSave, onReset, note }) {
+        return h(
+          'div',
+          { style: { display: 'flex', alignItems: 'center', gap: 10, marginTop: 18 } },
+          h(
+            'button',
+            {
+              type: 'button',
+              disabled: !dirty || saving,
+              onClick: onSave,
+              style: {
+                height: 28,
+                padding: '0 14px',
+                borderRadius: 6,
+                border: 'none',
+                background: dirty && !saving ? 'var(--dsw-alias-brand-primary)' : colors.border,
+                color: dirty && !saving ? '#fff' : colors.tertiary,
+                cursor: dirty && !saving ? 'pointer' : 'not-allowed',
+                font: 'inherit',
+                fontSize: 12,
+              },
+            },
+            saving ? '保存中…' : '保存',
+          ),
+          h(
+            'button',
+            {
+              type: 'button',
+              onClick: onReset,
+              style: {
+                height: 28,
+                padding: '0 12px',
+                borderRadius: 6,
+                border: '1px solid ' + colors.border,
+                background: 'transparent',
+                color: colors.secondary,
+                cursor: 'pointer',
+                font: 'inherit',
+                fontSize: 12,
+              },
+            },
+            '还原',
+          ),
+          note ? h('span', { style: { fontSize: 11, color: colors.tertiary } }, note) : null,
+        )
+      }
+  `
+
+

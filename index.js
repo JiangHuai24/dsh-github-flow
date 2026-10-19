@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url'
 import os from 'node:os'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
+const PACKAGE_DIR = here
 const repoUrl = 'https://github.com/extremity2740938284-create/dsh-github-flow'
 const scriptPath = path.join(here, 'scripts', 'gh-push.ps1')
 
@@ -96,6 +97,98 @@ export function apply(ctx, config) {
   const webServer = typeof ctx.get === 'function' ? ctx.get('webServer') : ctx.webServer
   const registry = typeof ctx.get === 'function' ? ctx.get('workspaceRegistry') : ctx.workspaceRegistry
 
+  const settings = {
+    autoTag: config && config.autoTag !== false,
+    retries: config && Number.isFinite(Number(config.retries)) ? Number(config.retries) : 6,
+  }
+
+  /**
+   * Merge only the editable keys into this plugin's own bundle patch. Every
+   * other key (sources, comments, unknown options) is preserved verbatim, so a
+   * save from the settings page never drops configuration it does not know.
+   */
+  const writeProfileConfig = (next) => {
+    const candidates = [
+      path.join(PACKAGE_DIR, 'cordis.patch.yml'),
+      process.env.DSH_PROFILE_DIR ? path.join(process.env.DSH_PROFILE_DIR, 'cordis.patch.yml') : undefined,
+    ].filter(Boolean)
+    const file = candidates.find((candidate) => fs.existsSync(candidate))
+    if (!file) return false
+    const lines = fs.readFileSync(file, 'utf8').split('\n')
+    const startIndex = lines.findIndex((line) => /^\s*- id: github-flow\s*$/.test(line))
+    if (startIndex < 0) return false
+    const rowIndent = (lines[startIndex].match(/^\s*/) || [''])[0]
+    const keyIndent = rowIndent + '  '
+    let endIndex = lines.length
+    for (let i = startIndex + 1; i < lines.length; i += 1) {
+      const line = lines[i]
+      if (line.trim() === '') continue
+      const indent = (line.match(/^\s*/) || [''])[0]
+      if (indent.length <= rowIndent.length) {
+        endIndex = i
+        break
+      }
+    }
+    const block = lines.slice(startIndex, endIndex)
+    const editable = ["reposRoot","autoTag","retries"]
+    const valueOf = (key) => {
+      const raw = next[key]
+      if (typeof raw === 'string') return JSON.stringify(raw)
+      if (typeof raw === 'boolean' || typeof raw === 'number') return String(raw)
+      return JSON.stringify(raw === undefined || raw === null ? '' : raw)
+    }
+    const configIndex = block.findIndex((line) => /^\s+config:\s*$/.test(line))
+    let nextBlock
+    if (configIndex < 0) {
+      nextBlock = [...block, keyIndent + 'config:', ...editable.map((key) => keyIndent + '  ' + key + ': ' + valueOf(key))]
+    } else {
+      const configIndent = (block[configIndex].match(/^\s*/) || [''])[0]
+      const childIndent = configIndent + '  '
+      let configEnd = block.length
+      for (let i = configIndex + 1; i < block.length; i += 1) {
+        const line = block[i]
+        if (line.trim() === '') continue
+        const indent = (line.match(/^\s*/) || [''])[0]
+        if (indent.length <= configIndent.length) {
+          configEnd = i
+          break
+        }
+      }
+      const children = block.slice(configIndex + 1, configEnd)
+      const keyPattern = new RegExp('^\\s+([A-Za-z0-9_]+):')
+      const present = new Set()
+      const patched = children.map((line) => {
+        const match = line.match(keyPattern)
+        if (!match) return line
+        present.add(match[1])
+        if (!editable.includes(match[1])) return line
+        return childIndent + match[1] + ': ' + valueOf(match[1])
+      })
+      const appended = editable.filter((key) => !present.has(key)).map((key) => childIndent + key + ': ' + valueOf(key))
+      nextBlock = [...block.slice(0, configIndex + 1), ...patched, ...appended, ...block.slice(configEnd)]
+    }
+    const merged = [...lines.slice(0, startIndex), ...nextBlock, ...lines.slice(endIndex)]
+    fs.writeFileSync(file, merged.join('\n'), 'utf8')
+    return true
+  }
+
+  const readJsonBody = (req) =>
+    new Promise((resolve) => {
+      let data = ''
+      req.on('data', (chunk) => {
+        data += chunk
+        if (data.length > 200000) req.destroy()
+      })
+      req.on('end', () => {
+        try {
+          resolve(JSON.parse(data || '{}'))
+        } catch {
+          resolve({})
+        }
+      })
+      req.on('error', () => resolve({}))
+    })
+
   const workspaceList = () => (registry && typeof registry.list === 'function' ? registry.list() : [])
 
   const candidatePaths = () => {
@@ -142,6 +235,40 @@ export function apply(ctx, config) {
       }),
     )
 
+    ctx.effect(() =>
+      webServer.register({
+        kind: 'exact',
+        path: '/github-flow/config',
+        handler: async (req, res) => {
+          if (req.method !== 'POST') {
+            sendJson(res, {
+              reposRoot: reposRoot || null,
+              autoTag: settings.autoTag !== false,
+              retries: settings.retries || 6,
+            })
+            return
+          }
+          const body = await readJsonBody(req)
+          const next = {
+            reposRoot: typeof body.reposRoot === 'string' && body.reposRoot.trim() ? body.reposRoot.trim() : reposRoot || '',
+            autoTag: body.autoTag !== false,
+            retries: Math.min(30, Math.max(1, Math.round(Number(body.retries) || 6))),
+          }
+          try {
+            const written = writeProfileConfig(next)
+            settings.autoTag = next.autoTag
+            settings.retries = next.retries
+            sendJson(res, {
+              ok: true,
+              config: next,
+              note: written ? '已保存到 profile 配置' : '已生效（未能写入配置文件）',
+            })
+          } catch (error) {
+            sendJson(res, { ok: false, error: String(error && error.message) })
+          }
+        },
+      }),
+    )
     ctx.effect(() =>
       webServer.register({
         kind: 'exact',
