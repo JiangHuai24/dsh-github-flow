@@ -1,26 +1,37 @@
 {
   "name": "@local/github-flow",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "type": "module",
   "description": "Registers the github-push skill and its script, so every session follows one fixed GitHub commit/push/release procedure.",
   "license": "MIT",
   "author": "extremity2740938284-create",
   "exports": {
     ".": "./index.js",
+    "./client": "./client.js",
     "./locale/*.json": "./locale/*.json",
     "./icon": "./icon.svg"
   },
   "files": [
     "index.js",
+    "client.js",
     "skill.md",
     "scripts/gh-push.ps1",
     "cordis.patch.yml",
     "locale/*.json",
-    "icon.svg"
+    "icon.svg",
+    "README.md",
+    "LICENSE"
   ],
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"
+    },
+    "client": {
+      "platform": "web",
+      "immediately": true,
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-slots"
+      ]
     }
   }
 }

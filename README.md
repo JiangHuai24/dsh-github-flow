@@ -23,6 +23,10 @@ plugin_manager  action=install_bundle  target=<本仓库绝对路径>
 
 插件行 id：`github-flow`。
 
+## 设置页
+
+「设置 → GitHub 推送流程」展示 skill 名称、脚本路径与仓库地址，并支持一键复制命令；数据来自 Host 的只读接口 `/github-flow/info`。
+
 ## 用法
 
 任何会话里说「推到 GitHub」，模型会加载 `github-push` 并执行：
