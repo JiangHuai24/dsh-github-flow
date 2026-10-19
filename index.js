@@ -196,7 +196,7 @@ export function apply(ctx, config) {
           sendJson(res, {
             ok,
             code: result.code,
-            repo: field('repo'),
+            repo: field('repo') || path.basename(target),
             branch: field('branch'),
             commit: field('commit'),
             verify: verified ? verified[0].trim() : '',
