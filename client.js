@@ -387,6 +387,7 @@ window.__ModuleLoader__.load({
         ctx.slots.inject('sidebar.footer.action', () =>
           ctx.slots.register({ name: 'sidebar.footer.action', id: 'github-flow-push', order: 11, label: text.push }, function PushAction() {
             const open = useOpenState()
+            const label = zh ? 'GitHub' : 'GitHub'
             return h(
               'button',
               {
@@ -399,34 +400,37 @@ window.__ModuleLoader__.load({
                   display: 'inline-flex',
                   alignItems: 'center',
                   justifyContent: 'center',
-                  width: 28,
+                  gap: 4,
                   height: 28,
-                  padding: 0,
+                  padding: '0 6px',
                   background: open ? colors.hover : 'transparent',
                   border: 'none',
                   borderRadius: 6,
                   cursor: 'pointer',
                   color: open ? colors.primary : colors.secondary,
                   font: 'inherit',
+                  fontSize: 12,
+                  whiteSpace: 'nowrap',
                 },
               },
               h(
                 'svg',
                 {
-                  width: 17,
-                  height: 17,
+                  width: 14,
+                  height: 14,
                   viewBox: '0 0 24 24',
                   fill: 'none',
                   stroke: 'currentColor',
-                  strokeWidth: 1.9,
+                  strokeWidth: 2.2,
                   strokeLinecap: 'round',
                   strokeLinejoin: 'round',
                   'aria-hidden': true,
+                  style: { flex: 'none' },
                 },
-                // GitHub mark silhouette with an upward arrow cut through it.
-                h('path', { d: 'M12 2.6a9.4 9.4 0 0 0-3 18.3c.5.1.7-.2.7-.5v-1.7c-2.6.6-3.2-1.2-3.2-1.2-.4-1.1-1-1.4-1-1.4-.9-.6.1-.6.1-.6 1 .1 1.5 1 1.5 1 .9 1.5 2.3 1.1 2.9.8.1-.6.3-1.1.6-1.4-2.1-.2-4.3-1-4.3-4.6 0-1 .4-1.9 1-2.5-.1-.2-.4-1.2.1-2.5 0 0 .8-.3 2.6 1a9 9 0 0 1 4.7 0c1.8-1.3 2.6-1 2.6-1 .5 1.3.2 2.3.1 2.5.6.6 1 1.5 1 2.5 0 3.6-2.2 4.4-4.3 4.6.3.3.6.9.6 1.8v2.6c0 .3.2.6.7.5A9.4 9.4 0 0 0 12 2.6Z' }),
-                h('path', { d: 'M12 15.5V9.2M9.4 11.8 12 9.2l2.6 2.6' }),
+                h('path', { d: 'M12 19V5' }),
+                h('path', { d: 'M5 12l7-7 7 7' }),
               ),
+              h('span', null, label),
             )
           }),
         )
