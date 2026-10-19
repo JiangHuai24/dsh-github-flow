@@ -4,6 +4,11 @@
 
 > Registers the `github-push` skill (plus its script) into the global skill layer, so every DeepSeek Harness session follows one fixed GitHub procedure instead of ad-hoc commands.
 
+
+## UI 规范
+
+侧边栏底部按钮、设置页、浮层面板的尺寸与交互统一见 [docs/ui-standard.md](docs/ui-standard.md)。新增插件请照此实现，不要另起数值。
+
 ## 它解决什么
 
 推 GitHub 每次都会踩同样的坑：网络时通时断、代理是死的、凭据没缓存、推完没校验、tag 指错提交。这个插件把这些判断写成一份 skill，任何会话说「推到 GitHub」都会加载它，按同一套步骤执行。

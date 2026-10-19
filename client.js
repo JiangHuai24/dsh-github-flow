@@ -31,6 +31,41 @@ window.__ModuleLoader__.load({
       pushFail: zh ? '推送失败' : 'Push failed',
     }
 
+    // ---- shared footer-action spec (see docs/ui-standard.md) ----
+
+    /** Shared footer-action metrics: one spec, applied to every plugin. */
+    const FOOTER_BUTTON = {
+      height: 28,
+      minWidth: 28,
+      padding: '0 6px',
+      paddingIconOnly: 0,
+      gap: 6,
+      radius: 6,
+      fontSize: 12,
+      iconSize: 16,
+    }
+
+    function footerButtonStyle(active, colors) {
+      return {
+        display: 'inline-flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: FOOTER_BUTTON.gap,
+        height: FOOTER_BUTTON.height,
+        minWidth: FOOTER_BUTTON.minWidth,
+        padding: FOOTER_BUTTON.padding,
+        background: active ? colors.hover : 'transparent',
+        border: 'none',
+        borderRadius: FOOTER_BUTTON.radius,
+        cursor: 'pointer',
+        color: active ? colors.primary : colors.secondary,
+        font: 'inherit',
+        fontSize: FOOTER_BUTTON.fontSize,
+        lineHeight: 1,
+        whiteSpace: 'nowrap',
+      }
+    }
+
     const colors = {
       primary: 'var(--dsw-alias-label-primary)',
       secondary: 'var(--dsw-alias-label-secondary)',
@@ -396,28 +431,13 @@ window.__ModuleLoader__.load({
                 'aria-label': text.push,
                 'aria-pressed': open ? 'true' : 'false',
                 onClick: () => setOpen(!open),
-                style: {
-                  display: 'inline-flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: 4,
-                  height: 28,
-                  padding: '0 6px',
-                  background: open ? colors.hover : 'transparent',
-                  border: 'none',
-                  borderRadius: 6,
-                  cursor: 'pointer',
-                  color: open ? colors.primary : colors.secondary,
-                  font: 'inherit',
-                  fontSize: 12,
-                  whiteSpace: 'nowrap',
-                },
+                style: footerButtonStyle(open, colors),
               },
               h(
                 'svg',
                 {
-                  width: 14,
-                  height: 14,
+                  width: FOOTER_BUTTON.iconSize,
+                  height: FOOTER_BUTTON.iconSize,
                   viewBox: '0 0 24 24',
                   fill: 'none',
                   stroke: 'currentColor',
