@@ -1,6 +1,6 @@
 {
   "name": "@local/github-flow",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "type": "module",
   "description": "Registers the github-push skill and its script, so every session follows one fixed GitHub commit/push/release procedure.",
   "license": "MIT",

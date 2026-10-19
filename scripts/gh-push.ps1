@@ -45,6 +45,8 @@ try {
   if (-not $root) { Fail 'git rev-parse failed' }
   $branch = (Invoke-Git @('rev-parse','--abbrev-ref','HEAD')).Trim()
   if (-not $branch) { Fail 'cannot determine current branch' }
+  $repoName = Split-Path -Leaf $root
+  $releaseUrl = ''
   Step ("repo   " + $root)
   Step ("branch " + $branch)
 
@@ -167,18 +169,52 @@ try {
         $existing = Invoke-Api -Method GET -Uri ("https://api.github.com/repos/" + $slug + "/releases/tags/" + $Tag)
         if ($existing) {
           Invoke-Api -Method PATCH -Uri ("https://api.github.com/repos/" + $slug + "/releases/" + $existing.id) -Json $body | Out-Null
-          Step ("release updated https://github.com/" + $slug + "/releases/tag/" + $Tag)
+          $releaseUrl = "https://github.com/" + $slug + "/releases/tag/" + $Tag
+          Step ("release updated " + $releaseUrl)
         } else {
           Invoke-Api -Method POST -Uri ("https://api.github.com/repos/" + $slug + "/releases") -Json $body | Out-Null
-          Step ("release created https://github.com/" + $slug + "/releases/tag/" + $Tag)
+          $releaseUrl = "https://github.com/" + $slug + "/releases/tag/" + $Tag
+          Step ("release created " + $releaseUrl)
         }
       } catch {
         Write-Host ("WARN: release failed: " + $_.Exception.Message)
+        $releaseUrl = ''
       }
     }
   }
 
-  Write-Host 'DONE'
+  $subject = (Invoke-Git @('log','-1','--pretty=%s')).Trim()
+  $short = $local.Substring(0, [Math]::Min(7, $local.Length))
+  $remoteShort = ''
+  if ($remote) { $remoteShort = $remote.Substring(0, [Math]::Min(7, $remote.Length)) }
+  $matches = ($remote -eq $local) -or $DryRun
+
+  Write-Host ''
+  Write-Host '========== PUSH RECEIPT =========='
+  if ($DryRun) {
+    Write-Host 'DRY RUN - nothing was pushed'
+    Write-Host ('repo    ' + $repoName)
+    Write-Host ('branch  ' + $branch)
+    Write-Host ('route   ' + $route)
+    Write-Host '=================================='
+  } elseif ($matches) {
+    Write-Host ('PUSH OK  ' + $repoName)
+    Write-Host ('branch  ' + $branch)
+    Write-Host ('commit  ' + $short + ' ' + $subject)
+    Write-Host ('verify  remote ' + $remoteShort + ' = local ' + $short)
+    if ($Tag) { Write-Host ('tag     ' + $Tag) }
+    if ($releaseUrl) { Write-Host ('release ' + $releaseUrl) } else { Write-Host 'release (none)' }
+    Write-Host '=================================='
+  } else {
+    Write-Host ('PUSH FAILED  ' + $repoName)
+    Write-Host ('branch  ' + $branch)
+    Write-Host ('local   ' + $short)
+    Write-Host ('remote  ' + $remoteShort)
+    Write-Host 'remote head does not match local head'
+    Write-Host '=================================='
+    Pop-Location
+    exit 1
+  }
 } finally {
   Pop-Location
 }

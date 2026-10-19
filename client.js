@@ -27,6 +27,8 @@ window.__ModuleLoader__.load({
       close: zh ? '关闭' : 'Close',
       output: zh ? '输出' : 'Output',
       failed: zh ? '失败' : 'Failed',
+      pushOk: zh ? '推送成功' : 'Push succeeded',
+      pushFail: zh ? '推送失败' : 'Push failed',
     }
 
     const colors = {
@@ -137,7 +139,20 @@ window.__ModuleLoader__.load({
           .then((payload) => {
             if (!payload) throw new Error('no response')
             setOk(payload.ok === true)
-            setOutput(payload.ok ? payload.output : (payload.output || payload.error || text.failed))
+            const lines = []
+            if (payload.ok) {
+              lines.push(text.pushOk + ' · ' + (payload.repo || ''))
+              if (payload.branch) lines.push('branch  ' + payload.branch)
+              if (payload.commit) lines.push('commit  ' + payload.commit)
+              if (payload.verify) lines.push('verify  ' + payload.verify)
+              if (payload.release) lines.push('release ' + payload.release)
+            } else {
+              lines.push(text.pushFail + ' · ' + (payload.repo || ''))
+              if (payload.error) lines.push(payload.error)
+            }
+            lines.push('')
+            lines.push(payload.output || '')
+            setOutput(lines.join('\n').trim())
             load()
           })
           .catch((failure) => {

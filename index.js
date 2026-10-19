@@ -187,7 +187,23 @@ export function apply(ctx, config) {
           }
           const result = await run('powershell.exe', args, { timeout: 180000 })
           const output = (result.stdout + '\n' + result.stderr).trim()
-          sendJson(res, { ok: result.ok, code: result.code, output: output.slice(-6000) })
+          const field = (name) => {
+            const match = output.match(new RegExp('^\\s*' + name + '\\s+(.+)$', 'm'))
+            return match ? match[1].trim() : ''
+          }
+          const verified = /remote\s+(\w+)\s*=\s*local\s+(\w+)/.exec(output)
+          const ok = result.ok && /PUSH OK/.test(output)
+          sendJson(res, {
+            ok,
+            code: result.code,
+            repo: field('repo'),
+            branch: field('branch'),
+            commit: field('commit'),
+            verify: verified ? verified[0].trim() : '',
+            tag: field('tag'),
+            release: field('release'),
+            output: output.slice(-6000),
+          })
         },
       }),
     )
