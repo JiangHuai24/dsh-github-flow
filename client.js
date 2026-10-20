@@ -16,6 +16,10 @@ window.__ModuleLoader__.load({
       repo: zh ? '仓库' : 'Repository',
       copy: zh ? '复制命令' : 'Copy command',
       copied: zh ? '已复制' : 'Copied',
+      askPush: zh ? '填入推送指令' : 'Fill push prompt',
+      askPushHint: zh ? '在当前输入框填入推送指令（不会自动发送）' : 'Fill the composer with a push prompt (does not send)',
+      filled: zh ? '已填入输入框，按回车发送' : 'Filled the composer — press Enter to send',
+      noInput: zh ? '找不到输入框' : 'Composer unavailable',
       reload: zh ? '刷新' : 'Reload',
       noRepos: zh ? '没有找到 git 工作区' : 'No git workspace found',
       changes: zh ? '处改动' : 'changes',
@@ -616,6 +620,250 @@ function Choice({ value, current, onChange, title, hint }) {
       )
     }
 
+// ---- composer action: fill a push prompt into the current input ----
+    // Uses the documented inputActions.setDraft so the text is a draft the human
+    // reviews: it never submits on its own.
+    function ComposerAction() {
+      const [account, setAccount] = React.useState('')
+      const [busy, setBusy] = React.useState(false)
+
+      React.useEffect(() => {
+        let alive = true
+        fetch('/github-flow/config', { cache: 'no-store' })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((payload) => {
+            if (alive && payload && payload.activeAccount) setAccount(payload.activeAccount)
+          })
+          .catch(() => {})
+        return () => {
+          alive = false
+        }
+      }, [])
+
+      return function ComposerActionView(props) {
+        const actions = props && props.inputActions
+        const sessionId = props && props.sessionId
+        const [note, setNote] = React.useState('')
+
+        const fill = () => {
+          if (!actions || typeof actions.setDraft !== 'function') {
+            setNote(text.noInput)
+            return
+          }
+          const target = sessionId ? String(sessionId) : ''
+          const prompt = [
+            '请使用 github-push skill，把当前工作区的项目推送到 GitHub。',
+            account ? '使用账号：' + account : '使用默认账号。',
+            '要求：',
+            '- 推送前检查 README/LICENSE/package.json 里没有个人账号、token、绝对路径等敏感信息，有就替换成占位符再推；',
+            '- 提交信息与仓库描述里不要出现我的个人账号名；',
+            '- 推完给我回执：分支、提交 sha、远端=本地校验、Release 链接。',
+          ].filter(Boolean).join('\n')
+          setBusy(true)
+          try {
+            actions.setDraft(prompt)
+            setNote(text.filled)
+          } catch (error) {
+            setNote(String(error && error.message))
+          } finally {
+            setBusy(false)
+            setTimeout(() => setNote(''), 4000)
+          }
+          void target
+        }
+
+        return h(
+          'button',
+          {
+            type: 'button',
+            title: (note || text.askPushHint) + (account ? ' · ' + account : ''),
+            'aria-label': text.askPush,
+            onClick: fill,
+            disabled: busy,
+            style: {
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: 4,
+              height: 28,
+              padding: '0 8px',
+              background: 'transparent',
+              border: 'none',
+              borderRadius: 6,
+              cursor: busy ? 'progress' : 'pointer',
+              color: account ? 'var(--dsw-alias-label-primary)' : 'var(--dsw-alias-label-secondary)',
+              font: 'inherit',
+              fontSize: 12,
+              whiteSpace: 'nowrap',
+            },
+          },
+          h(
+            'svg',
+            {
+              width: 14,
+              height: 14,
+              viewBox: '0 0 24 24',
+              fill: 'none',
+              stroke: 'currentColor',
+              strokeWidth: 2,
+              strokeLinecap: 'round',
+              strokeLinejoin: 'round',
+              'aria-hidden': true,
+              style: { flex: 'none', display: 'block' },
+            },
+            h('path', { d: 'M12 20.5V3.5' }),
+            h('path', { d: 'M3.5 12L12 3.5l8.5 8.5' }),
+          ),
+          h('span', null, account ? account : 'GitHub'),
+        )
+      }
+    }
+
+// ---- account management (no tokens stored: login switch only) ----
+    function AccountsPanel() {
+      const [store, setStore] = React.useState({ active: null, list: [] })
+      const [login, setLogin] = React.useState('')
+      const [note, setNote] = React.useState('')
+
+      const load = React.useCallback(() => {
+        fetch('/github-flow/accounts', { cache: 'no-store' })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((payload) => payload && setStore({ active: payload.active, list: payload.list || [] }))
+          .catch(() => {})
+      }, [])
+
+      React.useEffect(() => {
+        load()
+      }, [load])
+
+      const post = (body) => {
+        setNote('')
+        fetch('/github-flow/accounts', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(body),
+        })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((payload) => {
+            if (!payload) return
+            if (payload.ok === false) {
+              setNote(payload.error || '失败')
+              return
+            }
+            setStore({ active: payload.active, list: payload.list || [] })
+            setLogin('')
+          })
+          .catch((error) => setNote(String(error && error.message)))
+      }
+
+      return h(
+        'div',
+        { style: { marginTop: 20 } },
+        h('div', { style: { fontSize: 12, fontWeight: 600, color: colors.secondary, marginBottom: 6 } }, 'GitHub 账号'),
+        h(
+          'div',
+          { style: { fontSize: 11, color: colors.tertiary, marginBottom: 8, lineHeight: 1.6 } },
+          '这里只记录账号名称与提交身份，不保存任何 token。真正的登录凭据仍由系统凭据管理器保管；切换账号只改默认身份，推送时按需重新登录。',
+        ),
+        store.list.length === 0
+          ? h('div', { style: { fontSize: 12, color: colors.tertiary, padding: '6px 0' } }, '还没有添加账号')
+          : store.list.map((account) =>
+              h(
+                'div',
+                {
+                  key: account.login,
+                  style: {
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: 10,
+                    padding: '6px 0',
+                    borderBottom: '1px solid ' + colors.borderSoft,
+                    fontSize: 12,
+                  },
+                },
+                h('span', { style: { width: 16, color: account.login === store.active ? colors.success : colors.tertiary } }, account.login === store.active ? '●' : '○'),
+                h('span', { style: { color: colors.primary } }, account.login),
+                h('span', { style: { flex: 1 } }),
+                account.login === store.active
+                  ? h('span', { style: { fontSize: 11, color: colors.tertiary } }, '当前账号')
+                  : h(
+                      'button',
+                      {
+                        type: 'button',
+                        onClick: () => post({ action: 'activate', login: account.login }),
+                        style: {
+                          height: 24,
+                          padding: '0 10px',
+                          borderRadius: 6,
+                          border: '1px solid ' + colors.border,
+                          background: 'transparent',
+                          color: colors.primary,
+                          cursor: 'pointer',
+                          font: 'inherit',
+                          fontSize: 11,
+                        },
+                      },
+                      '切换到此账号',
+                    ),
+                h(
+                  'button',
+                  {
+                    type: 'button',
+                    onClick: () => post({ action: 'remove', login: account.login }),
+                    style: {
+                      height: 24,
+                      padding: '0 8px',
+                      borderRadius: 6,
+                      border: '1px solid ' + colors.border,
+                      background: 'transparent',
+                      color: colors.tertiary,
+                      cursor: 'pointer',
+                      font: 'inherit',
+                      fontSize: 11,
+                    },
+                  },
+                  '移除',
+                ),
+              ),
+            ),
+        h(
+          'div',
+          { style: { display: 'flex', gap: 8, marginTop: 10, alignItems: 'center' } },
+          h(TextField, { value: login, onChange: setLogin, placeholder: 'GitHub 用户名，如 octocat', width: 220 }),
+          h(
+            'button',
+            {
+              type: 'button',
+              disabled: !login.trim(),
+              onClick: () => post({ action: 'add', login: login.trim() }),
+              style: {
+                height: 28,
+                padding: '0 12px',
+                borderRadius: 6,
+                border: 'none',
+                background: login.trim() ? 'var(--dsw-alias-brand-primary)' : colors.border,
+                color: login.trim() ? '#fff' : colors.tertiary,
+                cursor: login.trim() ? 'pointer' : 'not-allowed',
+                font: 'inherit',
+                fontSize: 12,
+              },
+            },
+            '添加账号',
+          ),
+          h(
+            'a',
+            {
+              href: 'https://github.com/login',
+              target: '_blank',
+              rel: 'noreferrer',
+              style: { fontSize: 11, color: colors.secondary, textDecoration: 'underline' },
+            },
+            '打开 GitHub 登录页',
+          ),
+          note ? h('span', { style: { fontSize: 11, color: colors.error } }, note) : null,
+        ),
+      )
+    }
+
 function SettingsSection() {
       const [info, setInfo] = React.useState(null)
       const [wizardOpen, setWizardOpen] = React.useState(false)
@@ -793,6 +1041,7 @@ function SettingsSection() {
               ],
             })
           : null,
+        h(AccountsPanel, null),
         h(
           Group,
           { title: '推送面板' },
@@ -964,6 +1213,13 @@ function SettingsSection() {
               h('span', null, label),
             )
           }),
+        )
+
+        ctx.slots.inject('conversation.input.left', () =>
+          ctx.slots.register(
+            { name: 'conversation.input.left', id: 'github-flow-ask-push', order: 20, label: text.askPush },
+            ComposerAction(),
+          ),
         )
 
         ctx.slots.inject('shell.overlay', () =>

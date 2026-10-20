@@ -1,10 +1,10 @@
 {
   "name": "@local/github-flow",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "type": "module",
   "description": "Registers the github-push skill and its script, so every session follows one fixed GitHub commit/push/release procedure.",
   "license": "MIT",
-  "author": "extremity2740938284-create",
+  "author": "dsh-github-flow contributors",
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
@@ -23,7 +23,8 @@
     "LICENSE",
     "docs/*.md",
     "test/bundle.gate.mjs",
-    "test/safety.gate.mjs"
+    "test/safety.gate.mjs",
+    "test/features.gate.mjs"
   ],
   "dsh": {
     "bundle": {
@@ -35,6 +36,6 @@
     }
   },
   "scripts": {
-    "test": "node test/bundle.gate.mjs && node test/safety.gate.mjs"
+    "test": "node test/bundle.gate.mjs && node test/safety.gate.mjs && node test/features.gate.mjs"
   }
 }

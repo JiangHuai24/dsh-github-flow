@@ -5,6 +5,25 @@
 > Registers the `github-push` skill (plus its script) into the global skill layer, so every DeepSeek Harness session follows one fixed GitHub procedure instead of ad-hoc commands.
 
 
+## 会话内一键推送
+
+输入框左侧有一个 GitHub 按钮，点击后**在当前会话输入框填入推送指令**（不会自动发送，按回车才发送）。填进去的指令包含：
+
+- 使用 `github-push` skill 推送当前工作区
+- 推送前检查 README/LICENSE/package.json 里是否有个人账号、token、绝对路径，有就替换成占位符
+- 提交信息与仓库描述不出现个人账号
+- 推完给出回执（分支 / sha / 校验 / Release）
+
+## 多账号管理
+
+设置页「GitHub 推送流程」→「GitHub 账号」：添加账号名、切换当前账号、移除、按仓库绑定账号。
+
+**插件不保存任何 token**：这里只记录账号名与提交身份，真正的登录凭据由系统 Git Credential Manager 保管，推送时按需重新登录。
+
+## 推送前脱敏扫描
+
+`POST /github-flow/scrub` 扫描将要推送的文件，报告个人账号（URL 之外的）、GitHub token、Bearer token、私钥、邮箱等敏感项。只读检查，不会擅自改你的文件。
+
 ## UI 规范
 
 侧边栏底部按钮、设置页、浮层面板的尺寸与交互统一见 [docs/ui-standard.md](docs/ui-standard.md)。新增插件请照此实现，不要另起数值。
@@ -74,4 +93,4 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "<本仓库>\scripts\gh-push
 
 ## License
 
-MIT © 2026 extremity2740938284-create
+MIT © 2026 dsh-github-flow contributors

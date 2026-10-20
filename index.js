@@ -1,6 +1,6 @@
 import fs from 'node:fs'
 import path from 'node:path'
-import { execFile } from 'node:child_process'
+import { execFile, execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import os from 'node:os'
 
@@ -220,6 +220,94 @@ export function apply(ctx, config) {
       req.on('error', () => resolve({}))
     })
 
+  /**
+   * Named GitHub accounts. Deliberately stores NO tokens: only the label, login
+   * and commit identity. Authentication itself stays in Git Credential Manager,
+   * so a stolen plugin config cannot push anywhere.
+   */
+  const accountsFile = () => path.join(path.dirname(PACKAGE_DIR + '/package.json'), '.github-flow-accounts.json')
+
+  /**
+   * Scan the files a push would publish for personal identifiers, so the account
+   * name never rides along in a public repo. Read-only: it reports, it does not
+   * rewrite files behind the user's back.
+   */
+  const scrubRepo = (repoPath) => {
+    const patterns = [
+      // A repository URL legitimately contains the account; only flag the name
+      // when it appears OUTSIDE a github.com URL (prose, author, email, config).
+      { name: 'GitHub 个人账号（非 URL）', re: /(?<!github\.com\/)(?<!\/)(?<![-\w])extremity2740938284-create(?![\/\w])/gi },
+      { name: 'GitHub token', re: /gh[pousr]_[A-Za-z0-9]{20,}/g },
+      { name: 'Bearer token', re: /Bearer\s+[A-Za-z0-9_-]{20,}/g },
+      { name: '疑似私钥', re: /-----BEGIN [A-Z ]*PRIVATE KEY-----/g },
+      { name: '邮箱地址', re: /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g },
+    ]
+
+    let files = []
+    try {
+      const listed = execFileSync('git', ['-C', repoPath, 'ls-files', '--cached', '--others', '--exclude-standard'], {
+        encoding: 'utf8',
+        timeout: 20000,
+        windowsHide: true,
+      })
+      files = String(listed).split(/\r?\n/).filter(Boolean)
+    } catch (error) {
+      return { files: 0, findings: [], error: 'cannot list files: ' + String(error && error.message) }
+    }
+
+    const findings = []
+    let scanned = 0
+    for (const relative of files.slice(0, 3000)) {
+      if (/\.(png|jpe?g|gif|webp|ico|pdf|zip|gz|woff2?|ttf|mp4)$/i.test(relative)) continue
+      const full = path.join(repoPath, relative)
+      let content
+      try {
+        const stat = fs.statSync(full)
+        if (stat.size > 512 * 1024) continue
+        content = fs.readFileSync(full, 'utf8')
+      } catch {
+        continue
+      }
+      scanned += 1
+      for (const pattern of patterns) {
+        pattern.re.lastIndex = 0
+        const match = pattern.re.exec(content)
+        if (!match) continue
+        const line = content.slice(0, match.index).split('\n').length
+        findings.push({ file: relative, line, kind: pattern.name, sample: String(match[0]).slice(0, 60) })
+      }
+    }
+    return { files: scanned, findings: findings.slice(0, 100), total: findings.length }
+  }
+
+  const readAccounts = () => {
+    const empty = { active: null, list: [] }
+    try {
+      const raw = fs.readFileSync(accountsFile(), 'utf8')
+      const parsed = JSON.parse(raw)
+      if (!parsed || !Array.isArray(parsed.list)) return empty
+      return { active: parsed.active || null, list: parsed.list.filter((a) => a && a.login) }
+    } catch {
+      return empty
+    }
+  }
+
+  const writeAccounts = (value) => {
+    const file = accountsFile()
+    const tmp = file + '.tmp-' + process.pid
+    fs.writeFileSync(tmp, JSON.stringify(value, null, 2), 'utf8')
+    fs.renameSync(tmp, file)
+    return true
+  }
+
+  /** Which account is active for a given repository path, falling back to global. */
+  const accountForRepo = (repoPath) => {
+    const store = readAccounts()
+    if (!repoPath) return store.active
+    const bound = store.list.find((a) => Array.isArray(a.repos) && a.repos.includes(repoPath))
+    return bound ? bound.login : store.active
+  }
+
   const workspaceList = () => (registry && typeof registry.list === 'function' ? registry.list() : [])
 
   const candidatePaths = () => {
@@ -266,6 +354,98 @@ export function apply(ctx, config) {
       }),
     )
 
+    ctx.effect(() =>
+      webServer.register({
+        kind: 'exact',
+        path: '/github-flow/scrub',
+        handler: async (req, res) => {
+          if (req.method !== 'POST') {
+            res.writeHead(405).end('method not allowed')
+            return
+          }
+          const body = await readJsonBody(req)
+          const target = typeof body.path === 'string' ? body.path : ''
+          const allowed = candidatePaths().map((candidate) => candidate.path)
+          if (!allowed.includes(target)) {
+            sendJson(res, { ok: false, error: 'path not allowed' })
+            return
+          }
+          try {
+            const report = scrubRepo(target)
+            sendJson(res, { ok: true, ...report })
+          } catch (error) {
+            sendJson(res, { ok: false, error: String(error && error.message) })
+          }
+        },
+      }),
+    )
+    ctx.effect(() =>
+      webServer.register({
+        kind: 'exact',
+        path: '/github-flow/accounts',
+        handler: async (req, res) => {
+          if (req.method !== 'POST') {
+            sendJson(res, readAccounts())
+            return
+          }
+          const body = await readJsonBody(req)
+          const current = readAccounts()
+
+          if (body.action === 'add' && typeof body.login === 'string' && body.login.trim()) {
+            const login = body.login.trim()
+            const existing = current.list.find((a) => a.login === login)
+            if (!existing) {
+              current.list.push({
+                login,
+                name: typeof body.name === 'string' ? body.name.trim() : login,
+                email: typeof body.email === 'string' ? body.email.trim() : '',
+                repos: [],
+              })
+            }
+            if (!current.active) current.active = login
+            writeAccounts(current)
+            sendJson(res, { ok: true, ...current })
+            return
+          }
+
+          if (body.action === 'remove' && typeof body.login === 'string') {
+            current.list = current.list.filter((a) => a.login !== body.login)
+            if (current.active === body.login) current.active = current.list[0] ? current.list[0].login : null
+            writeAccounts(current)
+            sendJson(res, { ok: true, ...current })
+            return
+          }
+
+          if (body.action === 'activate' && typeof body.login === 'string') {
+            if (!current.list.some((a) => a.login === body.login)) {
+              sendJson(res, { ok: false, error: '账号不存在' })
+              return
+            }
+            current.active = body.login
+            writeAccounts(current)
+            sendJson(res, { ok: true, ...current })
+            return
+          }
+
+          if (body.action === 'bind' && typeof body.login === 'string' && typeof body.repo === 'string') {
+            for (const account of current.list) {
+              account.repos = (account.repos || []).filter((r) => r !== body.repo)
+            }
+            const target = current.list.find((a) => a.login === body.login)
+            if (!target) {
+              sendJson(res, { ok: false, error: '账号不存在' })
+              return
+            }
+            target.repos = [...(target.repos || []), body.repo]
+            writeAccounts(current)
+            sendJson(res, { ok: true, ...current })
+            return
+          }
+
+          sendJson(res, { ok: false, error: 'unknown action', ...current })
+        },
+      }),
+    )
     ctx.effect(() =>
       webServer.register({
         kind: 'exact',
