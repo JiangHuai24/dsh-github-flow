@@ -3,3 +3,5 @@ node_modules/
 *.tmp
 .DS_Store
 Thumbs.db
+.github-flow-accounts.json
+.github-flow-accounts.json.tmp-*

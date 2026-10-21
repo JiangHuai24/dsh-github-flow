@@ -28,6 +28,9 @@ const ctx = {
 
 const scratch = fs.mkdtempSync(path.join(os.tmpdir(), 'flow-accounts-'))
 process.env.DSH_PROFILE_DIR = scratch
+// The account store must be redirected as well, otherwise this test writes the
+// live .github-flow-accounts.json and the next run starts non-empty.
+process.env.GITHUB_FLOW_ACCOUNTS_FILE = path.join(scratch, 'accounts.json')
 
 mod.apply(ctx, {})
 
@@ -87,8 +90,7 @@ const removed = await callJson('/github-flow/accounts', 'POST', { action: 'remov
 check('remove bob', removed.ok === true && !removed.list.some((a) => a.login === 'bob'))
 
 // --- no token is ever persisted ---
-const accountFile = path.join(path.parse('D:/WorkBuddy/dsh-github-flow').root, 'WorkBuddy', 'dsh-github-flow', '.github-flow-accounts.json')
-const candidates = [accountFile, path.join(scratch, '.github-flow-accounts.json')]
+const candidates = [path.join(scratch, 'accounts.json')]
 let writtenText = null
 for (const candidate of candidates) {
   if (fs.existsSync(candidate)) writtenText = fs.readFileSync(candidate, 'utf8')

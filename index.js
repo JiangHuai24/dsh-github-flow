@@ -6,7 +6,7 @@ import os from 'node:os'
 
 const here = path.dirname(fileURLToPath(import.meta.url))
 const PACKAGE_DIR = here
-const repoUrl = 'https://github.com/extremity2740938284-create/dsh-github-flow'
+const repoUrl = 'https://github.com/JiangHuai24/dsh-github-flow'
 const scriptPath = path.join(here, 'scripts', 'gh-push.ps1')
 
 function readVersion() {
@@ -225,7 +225,11 @@ export function apply(ctx, config) {
    * and commit identity. Authentication itself stays in Git Credential Manager,
    * so a stolen plugin config cannot push anywhere.
    */
-  const accountsFile = () => path.join(path.dirname(PACKAGE_DIR + '/package.json'), '.github-flow-accounts.json')
+  const accountsFile = () => {
+    // A test (or an operator) can redirect this away from the live file.
+    if (process.env.GITHUB_FLOW_ACCOUNTS_FILE) return process.env.GITHUB_FLOW_ACCOUNTS_FILE
+    return path.join(PACKAGE_DIR, '.github-flow-accounts.json')
+  }
 
   /**
    * Scan the files a push would publish for personal identifiers, so the account
@@ -236,7 +240,7 @@ export function apply(ctx, config) {
     const patterns = [
       // A repository URL legitimately contains the account; only flag the name
       // when it appears OUTSIDE a github.com URL (prose, author, email, config).
-      { name: 'GitHub 个人账号（非 URL）', re: /(?<!github\.com\/)(?<!\/)(?<![-\w])extremity2740938284-create(?![\/\w])/gi },
+      { name: 'GitHub 个人账号（非 URL）', re: /(?<!github\.com\/)(?<!\/)(?<![-\w])JiangHuai24(?![\/\w])/gi },
       { name: 'GitHub token', re: /gh[pousr]_[A-Za-z0-9]{20,}/g },
       { name: 'Bearer token', re: /Bearer\s+[A-Za-z0-9_-]{20,}/g },
       { name: '疑似私钥', re: /-----BEGIN [A-Z ]*PRIVATE KEY-----/g },
