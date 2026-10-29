@@ -1,6 +1,6 @@
 {
   "name": "@local/github-flow",
-  "version": "1.8.1",
+  "version": "1.8.2",
   "type": "module",
   "description": "Registers the github-push skill and its script, so every session follows one fixed GitHub commit/push/release procedure.",
   "license": "MIT",
@@ -8,6 +8,7 @@
   "exports": {
     ".": "./index.js",
     "./client": "./client.js",
+    "./package.json": "./package.json",
     "./locale/*.json": "./locale/*.json",
     "./icon": "./icon.svg"
   },
@@ -37,5 +38,16 @@
   },
   "scripts": {
     "test": "node test/bundle.gate.mjs && node test/safety.gate.mjs && node test/features.gate.mjs"
+  },
+  "engines": {
+    "dsh": ">=0.1.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/JiangHuai24/dsh-github-flow.git"
+  },
+  "homepage": "https://github.com/JiangHuai24/dsh-github-flow#readme",
+  "bugs": {
+    "url": "https://github.com/JiangHuai24/dsh-github-flow/issues"
   }
 }
