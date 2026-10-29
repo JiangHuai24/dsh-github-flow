@@ -5,7 +5,12 @@ param(
   [string]$ReleaseName,
   [string]$ReleaseBody,
   [int]$Retries = 6,
-  [switch]$DryRun
+  [switch]$DryRun,
+  # Allow force-pushing an existing tag. Risky: rewriting a published tag is a
+  # recognizable abuse signal. Prefer -Tag with a NEW version instead.
+  [switch]$AllowForceTag,
+  # Skip the pre-flight secret/large-file scan. Only for repos you fully trust.
+  [switch]$SkipSafetyScan
 )
 
 $ErrorActionPreference = 'Continue'
@@ -64,6 +69,99 @@ try {
     Step 'working tree clean'
   }
 
+  # --- 2b. safety pre-flight ----------------------------------------------
+  # GitHub's abuse detection reacts to the CONTENT being pushed, not to intent.
+  # Four things cause account-level trouble far more often than people expect:
+  #
+  #  1. Secrets in the payload (OAuth client secrets, tokens, private keys).
+  #     Secret scanning blocks the push; retrying or clicking "allow" is what
+  #     escalates, so this stops before git ever talks to the server.
+  #  2. Very large files. GitHub hard-refuses >100 MB and warns >50 MB; a repo
+  #     that keeps packing oversized blobs is also an abuse signal.
+  #  3. Rewriting published history (force-push, tag re-pointing, branch
+  #     resets). Legitimate in rare cases, but it is also the shape of abuse.
+  #  4. Rapid repeated pushes to the same ref. Retrying a failing push in a
+  #     tight loop is the classic trigger.
+  #
+  # Each check only REPORTS unless -SkipSafetyScan; the caller decides.
+  if (-not $SkipSafetyScan) {
+    Step 'safety scan'
+    # (a) collect the files this push would send
+    $scanTargets = @()
+
+    # Prefer staged paths (the normal case right after `git add`).
+    $staged = (Invoke-Git @('diff','--cached','--name-only','--diff-filter=ACMR')) -split "\r?\n"
+    foreach ($ln in $staged) {
+      $f = ([string]$ln).Trim()
+      if ($f -and (Test-Path -LiteralPath $f -PathType Leaf)) { $scanTargets += $f }
+    }
+
+    # Nothing staged: scan the single commit this run would publish. A ref name
+    # printed by `rev-parse` can be an error message, so validate the shape
+    # before using it as a range.
+    if ($scanTargets.Count -eq 0) {
+      $headSha = ([string](Invoke-Git @('rev-parse','HEAD'))).Trim()
+      $parentSha = ([string](Invoke-Git @('rev-parse','HEAD~1'))).Trim()
+      if ($headSha -match '^[0-9a-f]{40}$' -and $parentSha -match '^[0-9a-f]{40}$') {
+        $changed = (Invoke-Git @('diff','--name-only',$parentSha,$headSha)) -split "\r?\n"
+        foreach ($ln in $changed) {
+          $f = ([string]$ln).Trim()
+          if ($f -and (Test-Path -LiteralPath $f -PathType Leaf)) { $scanTargets += $f }
+        }
+      }
+    }
+    $secretHits = @()
+    $largeHits = @()
+    foreach ($f in $scanTargets) {
+      if (-not (Test-Path -LiteralPath $f)) { continue }
+      $item = Get-Item -LiteralPath $f -ErrorAction SilentlyContinue
+      if (-not $item -or $item.PSIsContainer) { continue }
+      if ($item.Length -gt 50MB) { $largeHits += ($f + ' (' + [math]::Round($item.Length / 1MB, 1) + ' MB)') }
+      if ($item.Length -gt 4MB) { continue }  # binary/large: not worth scanning
+      try { $text = Get-Content -LiteralPath $f -Raw -ErrorAction Stop } catch { continue }
+      if ($text -match 'GOCSPX-[A-Za-z0-9_-]{10,}') { $secretHits += ($f + ': Google OAuth client secret') }
+      if ($text -match 'gh[pousr]_[A-Za-z0-9]{30,}') { $secretHits += ($f + ': GitHub token') }
+      if ($text -match 'AKIA[0-9A-Z]{16}') { $secretHits += ($f + ': AWS access key') }
+      if ($text -match '-----BEGIN (RSA |EC |OPENSSH |PGP )?PRIVATE KEY-----') { $secretHits += ($f + ': private key') }
+      if ($text -match 'xox[abprs]-[A-Za-z0-9-]{10,}') { $secretHits += ($f + ': Slack token') }
+    }
+
+    if ($secretHits.Count -gt 0) {
+      Write-Host 'BLOCKED: the payload looks like it contains secrets'
+      $secretHits | ForEach-Object { Write-Host ('  - ' + $_) }
+      Write-Host 'Remove them and rewrite the commit before pushing. Do not retry, and do not'
+      Write-Host 'use the "allow secret" link: repeated or bypassed secret-scanning hits are'
+      Write-Host 'what gets an account restricted, not the secret itself.'
+      Fail 'refusing to push secrets'
+    }
+    if ($largeHits.Count -gt 0) {
+      Write-Host 'WARN: files above 50 MB (GitHub warns at this size, hard-refuses >100 MB)'
+      $largeHits | ForEach-Object { Write-Host ('  - ' + $_) }
+      Write-Host 'Consider Git LFS or dropping these from history before pushing.'
+    }
+
+    # (b) history rewrite detection
+    $rewrite = $false
+    $upRaw = [string](Invoke-Git @('rev-parse','--verify','--quiet','@{u}'))
+    $upSha = $upRaw.Trim()
+    if ($upSha -match '^[0-9a-f]{40}$') {
+      # Count only the commits this branch is MISSING from upstream. A value that
+      # is not a plain integer means git returned an error, so it is ignored
+      # rather than cast (which would throw on the error text).
+      $behindRaw = [string](Invoke-Git @('rev-list','--count','HEAD','--not',$upSha))
+      $behindNum = 0
+      if ($behindRaw.Trim() -match '^\d+') { $behindNum = [int]$Matches[0] }
+      if ($behindNum -gt 0) { $rewrite = $true }
+    }
+    if ($rewrite) {
+      Write-Host 'WARN: this push rewrites published history (local branch is behind upstream)'
+      Write-Host 'Prefer a plain commit on top. If the rewrite is intentional, keep it to ONE'
+      Write-Host 'force-push with --force-with-lease rather than a series of retries.'
+    }
+
+    if ($secretHits.Count -eq 0 -and $rewrite -eq $false) { Step 'safety scan clean' }
+  }
+
   # --- 3. connectivity -----------------------------------------------------
   $route = $null
   for ($i = 1; $i -le $Retries -and -not $route; $i++) {
@@ -81,19 +179,38 @@ try {
   if ($route -eq 'proxy') { $proxy = 'http://127.0.0.1:7890' }
 
   # --- 4. push -------------------------------------------------------------
+  #
+  # Retry policy: a push is retried ONLY when the failure is clearly transient
+  # (network/transport). Server-side rejections (rejected, protected branch,
+  # secret scanning, push protection, non-fast-forward) are NOT retried --
+  # hammering the same rejected push is itself an abuse signal, and it is one of
+  # the most common reasons an otherwise innocent account gets flagged.
   if ($DryRun) {
     Step ("dry-run: would push " + $branch + " via " + $route)
   } else {
     $pushed = $false
+    $lastOut = ''
     for ($i = 1; $i -le $Retries -and -not $pushed; $i++) {
       $out = Invoke-Git @('push','origin',$branch) $proxy
-      if ($LASTEXITCODE -eq 0 -or $out -match 'Everything up-to-date') { $pushed = $true }
-      else {
-        Step ("push attempt " + $i + " failed, retrying")
-        Start-Sleep -Seconds 3
+      $lastOut = [string]$out
+      if ($LASTEXITCODE -eq 0 -or $out -match 'Everything up-to-date') { $pushed = $true; break }
+
+      if ($out -match 'rejected|non-fast-forward|protected branch|secret|push protection|GH0\d\d|denied|forbidden|not authorized') {
+        Write-Host 'PUSH REJECTED (server-side refusal) -- not retrying'
+        Write-Host ('  reason: ' + (($lastOut -split "`n")[0]))
+        Write-Host 'Repeatedly re-sending a rejected push is an abuse signal. Fix the cause'
+        Write-Host 'first: rewrite the secret out of history, pull/merge instead of forcing,'
+        Write-Host 'or use a NEW version tag instead of re-pointing a published one.'
+        Fail 'push rejected by the server'
+      }
+
+      if ($i -lt $Retries) {
+        $wait = [math]::Min(30, [math]::Pow(2, $i))   # 2,4,8,16,30 s -- back off
+        Step ("push attempt " + $i + " hit a transport error, retrying in " + $wait + "s")
+        Start-Sleep -Seconds $wait
       }
     }
-    if (-not $pushed) { Fail 'push failed after retries' }
+    if (-not $pushed) { Fail ('push failed after retries: ' + (($lastOut -split "`n")[0])) }
   }
 
   # --- 5. verify -----------------------------------------------------------
@@ -118,9 +235,25 @@ try {
   # --- 6. tag --------------------------------------------------------------
   if ($Tag -and -not $DryRun) {
     Step ("tag    " + $Tag)
+    # Re-pointing an EXISTING published tag is a rewrite of public history.
+    # It is legal, but it is also one of the shapes abuse detection looks for,
+    # so it needs an explicit opt-in rather than happening silently.
+    $tagExistsRemote = $false
+    try {
+      $tagRaw = (Invoke-Git @('ls-remote','--tags','origin','refs/tags/' + $Tag) $proxy)
+      $tagExistsRemote = ($tagRaw -match '^[0-9a-f]{40}\s')
+    } catch { $tagExistsRemote = $false }
+
+    if ($tagExistsRemote -and -not $AllowForceTag) {
+      Write-Host ('WARN: tag ' + $Tag + ' already exists on the remote')
+      Write-Host 'Re-pointing a published tag rewrites public history. Use a NEW version'
+      Write-Host 'tag instead (recommended), or pass -AllowForceTag to accept the risk.'
+      Fail 'refusing to re-point an existing tag'
+    }
+
     Invoke-Git @('tag','-f',$Tag,$local) | Out-Null
     $out = Invoke-Git @('push','-f','origin',$Tag) $proxy
-    if ($LASTEXITCODE -ne 0) { Fail ("tag push failed: " + $out) }
+    if ($LASTEXITCODE -ne 0) { Fail ("tag push failed: " + (($out -split "`n")[0])) }
   }
 
   # --- 7. release ----------------------------------------------------------

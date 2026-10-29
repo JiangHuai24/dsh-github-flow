@@ -6,12 +6,28 @@
 
 **任何代码/文档改动完成后立即走一遍本流程**，不要攒着等用户提醒；用户说「推」时，默认已经改完、只差推送与校验。
 
-## 0. 三条铁律
+## 0. 四条铁律
 
 1. **推完要校验**：远端 `refs/heads/<branch>` 必须等于本地 `HEAD`，否则视为没推成功。
 2. **不猜网络**：本机直连与代理（`127.0.0.1:7890`）会交替失效，每次推送前先探测，哪条通走哪条。
 3. **凭据不落库**：GitHub token 只从 Git Credential Manager 取（`git credential fill`），不写进仓库、不回显、不写进日志。
 4. **必须回执**：每次推送都要给用户明确反馈，不能只在心里"推完了"就结束（格式见第 8 节）。
+
+## 0.5 账号安全（先看这条）
+
+GitHub 的滥用判定看的是**行为形态**，不是意图。远端仓库只是做个小修复也可能触发风控，
+常见触发点如下，每一条都要主动避开：
+
+| 触发点 | 为什么危险 | 正确做法 |
+| --- | --- | --- |
+| 载荷里有 secret（OAuth client secret、token、私钥） | 触发 secret scanning / push protection，**重试或点「允许」才是升级为账号限制的那一步** | 推送前本地扫出来，重写提交把它去掉 |
+| 单文件 > 50MB | 50MB 起告警、100MB 硬拒；反复推送大包也是滥用信号 | 上 Git LFS，或从历史里剔除 |
+| 强制推送 / 重指已发布 tag | 改写公开历史，形态上就是滥用 | 叠一个新提交；tag 用**新版本号**，不要重指 |
+| 失败的 push 连续重试 | 同一笔被拒请求反复重发，是最典型的触发项 | 只有**网络/传输**类错误才重试，且指数退避；服务端拒绝立即停 |
+| 短时间大量 API 调用 | 触发次级速率限制 | 复用响应、不轮询、不在循环里创建 Release |
+
+`gh-push.ps1` 已内置这些检查：推送前先扫 secret 与大文件（`-SkipSafetyScan` 可跳过），
+push 只对传输错误重试、服务端拒绝立即终止，重指已存在的 tag 需显式 `-AllowForceTag`。
 
 ## 1. 前置检查（缺一不可）
 
@@ -61,7 +77,7 @@ git rev-parse HEAD
 
 ## 5. 打 tag 与 Release（有版本号时）
 
-- tag 指向**最终提交**（修完再打；已经建过 Release 就移动 tag，`force: true`）。
+- tag 指向**最终提交**（修完再打）。⚠️ **不要重指已发布 tag**：那会改写公开历史，且是风控信号；版本有变就发**新版本号**。确需重指时脚本要 `-AllowForceTag` 显式授权。
 - Release 正文只列事实（新增/修复/测试），不写营销词。
 - 用缓存凭据调 API：`git credential fill` 取 token → `Authorization: Bearer <token>`。
 
@@ -92,6 +108,9 @@ powershell -NoProfile -ExecutionPolicy Bypass -File "{{SKILL_DIR}}\scripts\gh-pu
 | --- | --- | --- |
 | `could not read Username` | 没有缓存凭据 | 交互登录一次，或让用户提供 PAT |
 | `Failed to connect ... port 443` | 直连/代理当前不可用 | 按第 2 步重新探测后重试 |
+| `GH0xx` / `push protection` / `secret scanning` | 载荷里有 secret 或违反仓库规则 | **不要重试、不要点允许**；重写提交去掉它 |
+| `non-fast-forward` / `rejected` | 远端有你没有的提交 | 先 pull/merge，**不要 force** |
+| tag 已存在于远端 | 重指会改写公开历史 | 换新版本号，或 `-AllowForceTag` 显式授权 |
 | `repository not found` / API 404 | 远端仓库不存在 | 先建空仓库 |
 | 凭据窗口一直挂着 | GCM 在等交互 | 设 `GIT_TERMINAL_PROMPT=0`、`GCM_INTERACTIVE=Never` 再跑 |
 | 授权页空白 | 系统代理指向坏端口 | 关掉系统代理后用直连/TUN |
