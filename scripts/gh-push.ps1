@@ -41,6 +41,36 @@ function Test-GitHub {
   return ($code -eq '200')
 }
 
+# Local proxies this machine might be running. A single hard-coded port is a
+# silent trap: the tunnel moves (or is not running at all), the push reports
+# "network unavailable", and the cause looks like a GitHub outage. Probe the
+# ones that actually exist, cheapest first.
+$script:ProxyCandidates = @(
+  $env:DSH_GIT_PROXY,
+  $env:HTTPS_PROXY,
+  $env:HTTP_PROXY,
+  'http://127.0.0.1:7890',
+  'http://127.0.0.1:7897',
+  'http://127.0.0.1:7891',
+  'http://127.0.0.1:10809',
+  'http://127.0.0.1:10808',
+  'http://127.0.0.1:8080'
+) | Where-Object { $_ -and $_.Trim() } | Select-Object -Unique
+
+# Only keep candidates whose port is actually listening, so the probe does not
+# burn 8 seconds per dead port on a machine with no proxy at all.
+function Get-LiveProxies {
+  $live = @()
+  foreach ($candidate in $script:ProxyCandidates) {
+    $port = 0
+    if ($candidate -match ':([0-9]+)') { $port = [int]$Matches[1] }
+    if ($port -le 0) { continue }
+    $listening = Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue
+    if ($listening) { $live += $candidate }
+  }
+  return $live
+}
+
 # --- 1. repository ---------------------------------------------------------
 Push-Location $RepoPath
 try {
@@ -164,19 +194,28 @@ try {
 
   # --- 3. connectivity -----------------------------------------------------
   $route = $null
+  $chosen = $null
+  $live = Get-LiveProxies
   for ($i = 1; $i -le $Retries -and -not $route; $i++) {
     if (Test-GitHub '') { $route = 'direct' }
-    elseif (Test-GitHub 'http://127.0.0.1:7890') { $route = 'proxy' }
     else {
-      Step ("network unavailable (attempt " + $i + "/" + $Retries + "), retrying")
+      foreach ($candidate in $live) {
+        if (Test-GitHub $candidate) { $route = 'proxy'; $chosen = $candidate; break }
+      }
+    }
+    if (-not $route) {
+      if ($live.Count -eq 0) {
+        Step ("no local proxy listening (checked " + $script:ProxyCandidates.Count + " candidates)")
+      } else {
+        Step ("network unavailable (attempt " + $i + "/" + $Retries + ", " + $live.Count + " proxy candidate(s) answered nothing)")
+      }
       Start-Sleep -Seconds 3
     }
   }
-  if (-not $route) { Fail 'no route to github.com (direct and proxy both failed)' }
-  Step ("route  " + $route)
+  if (-not $route) { Fail 'no route to github.com (direct and every known proxy failed)' }
+  Step ("route  " + $route + $(if ($chosen) { "  via $chosen" } else { '' }))
 
-  $proxy = $null
-  if ($route -eq 'proxy') { $proxy = 'http://127.0.0.1:7890' }
+  $proxy = $chosen
 
   # --- 4. push -------------------------------------------------------------
   #
